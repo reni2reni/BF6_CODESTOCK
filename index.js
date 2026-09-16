@@ -47,6 +47,7 @@
     let interactionMode = "normal";
     let pendingBlockData = null;
     let lastMouseEvent = null;
+    let lastContextMenuEvent = null;
 
     function cloneDefault() {
         return {
@@ -120,6 +121,7 @@
             if (!svg || svg._jsCodeStockMouseTrackingAttached) return;
             svg._jsCodeStockMouseTrackingAttached = true;
             svg.addEventListener("mousemove", e => { lastMouseEvent = e; }, { passive: true });
+            svg.addEventListener("contextmenu", e => { lastContextMenuEvent = e; lastMouseEvent = e; }, { passive: true });
         } catch (e) {
             console.warn("[JS Code Stock] mouse tracking failed:", e);
         }
@@ -762,9 +764,10 @@ function renameSubroutineIfNeeded(ws, data) {
         try {
             let canvas = typeof ws.getCanvas === "function" ? ws.getCanvas() : null;
             if (!canvas) canvas = document.querySelector(".blocklyBlockCanvas");
-            if (lastMouseEvent && canvas && canvas.ownerSVGElement && typeof canvas.getScreenCTM === "function") {
+            const pointerEvent = lastContextMenuEvent || lastMouseEvent;
+            if (pointerEvent && canvas && canvas.ownerSVGElement && typeof canvas.getScreenCTM === "function") {
                 const pt = canvas.ownerSVGElement.createSVGPoint();
-                pt.x = lastMouseEvent.clientX; pt.y = lastMouseEvent.clientY;
+                pt.x = pointerEvent.clientX; pt.y = pointerEvent.clientY;
                 const ctm = canvas.getScreenCTM();
                 if (ctm && typeof ctm.inverse === "function") {
                     const p = pt.matrixTransform(ctm.inverse());
@@ -1037,18 +1040,9 @@ function renameSubroutineIfNeeded(ws, data) {
     function registerMenus() {
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
-        // Blockly/Portal requires a registered menu to make the entry appear
-        // in the native right-click context menu.  Keep JS Code Stock as one
-        // menu item; do not open the stock panel automatically on left-click.
-        const workspaceMenu = plugin.createMenu(
-            "jsCodeStockWorkspaceMenu",
-            "JS Code Stock",
-            Scope.WORKSPACE
-        );
-        workspaceMenu.options = ["items.jsCodeStockWorkspace"];
-        plugin.registerMenu(workspaceMenu);
-        _Blockly.ContextMenuRegistry.registry.register(workspaceMenu);
-
+        // Register the action itself as a top-level Blockly context-menu item.
+        // Do NOT create a plugin submenu here: selecting "JS Code Stock" must
+        // launch the requested action immediately.
         plugin.registerItem({
             id: "jsCodeStockWorkspace",
             displayText: "JS Code Stock",
@@ -1058,15 +1052,6 @@ function renameSubroutineIfNeeded(ws, data) {
             callback: () => openWorkspacePasteMode()
         });
 
-        const blockMenu = plugin.createMenu(
-            "jsCodeStockBlockMenu",
-            "JS Code Stock",
-            Scope.BLOCK
-        );
-        blockMenu.options = ["items.jsCodeStockBlock"];
-        plugin.registerMenu(blockMenu);
-        _Blockly.ContextMenuRegistry.registry.register(blockMenu);
-
         plugin.registerItem({
             id: "jsCodeStockBlock",
             displayText: "JS Code Stock",
@@ -1075,12 +1060,7 @@ function renameSubroutineIfNeeded(ws, data) {
             preconditionFn: () => "enabled",
             callback: scope => {
                 const blocks = plugin.getSelectedBlocks(scope) || [];
-                if (blocks.length) {
-                    openBlockEntryMode(blocks[0]);
-                } else {
-                    // A block-scoped menu should only be used with a block.
-                    openWorkspacePasteMode();
-                }
+                if (blocks.length) openBlockEntryMode(blocks[0]);
             }
         });
     }
