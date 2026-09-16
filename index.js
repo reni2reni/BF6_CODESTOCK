@@ -38,6 +38,9 @@
     let clipboardMode = null; // "copy" | "cut"
     let cutIds = new Set();
 
+    let isPinned = true; // 🔒️ ロック状態（falseだと操作後に自動で閉じる）
+    let isCollapsed = false; // ⬒ 折りたたみ最小化状態
+    let savedPanelHeight = "600px";
     let panel = null;
     let listEl = null;
     let searchEl = null;
@@ -198,12 +201,15 @@
 #js-code-stock-panel .jcs-actions button{font-size:13px;padding:2px 6px;height:22px;line-height:18px;border-radius:3px}
 #js-code-stock-panel .jcs-btn-edit:hover{background:#3571b3}
 #js-code-stock-panel .jcs-btn-del:hover{background:#e74c3c}
-
 #js-code-stock-panel .jcs-foot{padding-top:4px;border-top:1px solid #333;display:flex;justify-content:space-between;align-items:center}
 #js-code-stock-panel .jcs-status{color:#aaa;font-size:11px}
 #js-code-stock-panel .jcs-foot-tools{display:flex;gap:4px}
 #js-code-stock-panel .jcs-hidden{display:none!important}
 #js-code-stock-panel input:focus,#js-code-stock-panel textarea:focus{outline:1px solid #4a7bd4}
+#js-code-stock-panel .jcs-pin{font-size:13px;padding:3px 5px;background:#333}
+#js-code-stock-panel .jcs-pin.unlocked{opacity:0.45;filter:grayscale(1)}
+#js-code-stock-panel .jcs-collapse{font-size:13px;padding:3px 5px;background:#333}
+#js-code-stock-panel.collapsed{height:auto!important;min-height:0!important;resize:none}
 `;
         document.head.appendChild(style);
     }
@@ -586,14 +592,14 @@
                         }
                         if (typeof createdBlock.render === "function") createdBlock.render();
 
-                        // 近くのブロックの中や間に自動結合
                         autoConnectBlock(createdBlock);
 
                         if (typeof createdBlock.select === "function") createdBlock.select();
                         if (typeof createdBlock.bumpNeighbours === "function") createdBlock.bumpNeighbours();
                     }
+                    // ★ アンロック（🔓️）状態なら操作完了後にパネルを閉じる
+                    if (!isPinned) closePanel();
                 } else {
-                    // パネル内でのクリック処理
                     handleItemClick(item, nameEl);
                 }
             };
@@ -607,8 +613,9 @@
     function handleItemClick(item, nameEl) {
         if (interactionMode === "workspacePaste") {
             pasteSerializedStock(item.body).then(() => {
-                // closePanel() を削除して開いたまま維持
                 setStatus("Pasted into workspace");
+                // ★ アンロック（🔓️）状態なら操作後にパネルを閉じる
+                if (!isPinned) closePanel();
             }).catch(e => setStatus(String(e)));
         } else {
             copyText(item.body).then(() => {
@@ -643,11 +650,43 @@
         tools.className = "jcs-tools";
         tools.appendChild(makeButton("EXPORT", exportData));
         tools.appendChild(makeButton("IMPORT", importData));
+
+        // 🔒️ / 🔓️ ピン留め（ロック）ボタン
+        const pinBtn = makeButton(isPinned ? "🔒️" : "🔓️", () => {
+            isPinned = !isPinned;
+            renderPanel();
+        }, "jcs-pin" + (isPinned ? "" : " unlocked"));
+        pinBtn.title = isPinned ? "ロック中（操作後も閉じない）" : "アンロック（操作後に自動で閉じる）";
+
+        // ⬒ / ▉ 折りたたみ（最小化/展開）ボタン
+        const collapseBtn = makeButton(isCollapsed ? "▉" : "⬒", () => {
+            isCollapsed = !isCollapsed;
+            if (isCollapsed && panel.style.height && panel.style.height !== "auto") {
+                savedPanelHeight = panel.style.height;
+            }
+            renderPanel();
+        }, "jcs-collapse");
+        collapseBtn.title = isCollapsed ? "展開する" : "タイトルのみ残して最小化";
+
         const close = makeButton("✕", closePanel, "jcs-close");
         close.title = "Close";
-        tools.appendChild(close);
+
+        // 並び順：🔒️ ⬒ ✕
+        tools.append(pinBtn, collapseBtn, close);
         head.append(ttl, tools);
 
+        // 最小化（折りたたみ）時はタイトルバーのみ描画して終了
+        if (isCollapsed) {
+            panel.classList.add("collapsed");
+            container.appendChild(head);
+            panel.appendChild(container);
+            return;
+        }
+
+        panel.classList.remove("collapsed");
+        if (savedPanelHeight) panel.style.height = savedPanelHeight;
+
+        // --- 以下は元のタブ・フォーム・リスト描画処理のまま ---
         const parentTabs = document.createElement("div");
         parentTabs.className = "jcs-tabs";
         state.parents.slice(0, PARENT_COUNT).forEach((name, i) => {
