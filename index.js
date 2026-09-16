@@ -191,8 +191,8 @@
 #js-code-stock-panel .jcs-item.dragTarget{border-top:2px solid #4da3ff}
 #js-code-stock-panel .jcs-drag{width:26px;min-width:26px;height:22px;cursor:grab;user-select:none;border:1px solid #555;background:#2a2a2a;border-radius:4px;font-size:14px;padding:0;display:flex;align-items:center;justify-content:center;color:#aaa}
 #js-code-stock-panel .jcs-drag.active{background:#4a7bd4;color:#fff}
-#js-code-stock-panel .jcs-name{flex:1;margin-left:6px;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 4px;border-left:6px solid #666;display:flex;align-items:center}
-#js-code-stock-panel .jcs-name:active{background:#555;transform:scale(.9)}
+#js-code-stock-panel .jcs-name{flex:1;margin-left:6px;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 4px;border-left:6px solid #666;display:flex;align-items:center;cursor:grab;user-select:none}
+#js-code-stock-panel .jcs-name:active{cursor:grabbing;background:#555}
 #js-code-stock-panel .jcs-actions{display:flex;gap:6px;opacity:0;transition:0.1s}
 #js-code-stock-panel .jcs-item:hover .jcs-actions{opacity:1}
 #js-code-stock-panel .jcs-actions button{font-size:13px;padding:2px 6px;height:22px;line-height:18px;border-radius:3px}
@@ -414,6 +414,165 @@
         renderList();
     }
 
+    function getWorkspaceCoords(ws, e) {
+        try {
+            let canvas = typeof ws.getCanvas === "function" ? ws.getCanvas() : null;
+            if (!canvas) canvas = document.querySelector(".blocklyBlockCanvas");
+            if (canvas && canvas.ownerSVGElement && typeof canvas.getScreenCTM === "function") {
+                const pt = canvas.ownerSVGElement.createSVGPoint();
+                pt.x = e.clientX;
+                pt.y = e.clientY;
+                const ctm = canvas.getScreenCTM();
+                if (ctm && typeof ctm.inverse === "function") {
+                    const p = pt.matrixTransform(ctm.inverse());
+                    return { x: p.x, y: p.y };
+                }
+            }
+        } catch (_) {}
+        const metrics = ws.getMetrics ? ws.getMetrics() : {};
+        return { x: (metrics.viewLeft || 0) + 50, y: (metrics.viewTop || 0) + 50 };
+    }
+
+    // パネル外へドラッグした際に実行されるワークスペース配置処理
+    function startWorkspaceBlockDrag(item, moveEvent) {
+        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+        if (!ws) return;
+
+        let data;
+        try {
+            data = JSON.parse(item.body);
+        } catch (_) {
+            setStatus("Invalid block JSON");
+            return;
+        }
+
+        // 1. パネルを即座に閉じる
+        closePanel();
+
+        // 2. 変数・サブルーチンリネーム・サニタイズ
+        const varDefs = extractVariableDefinitions(data);
+        if (varDefs.length > 0) registerVariablesBeforePaste(ws, varDefs);
+        data = renameSubroutineIfNeeded(ws, data);
+        data = sanitizeForWorkspace(ws, data);
+
+        // 3. ブロック生成
+        const existingBlocks = new Set(ws.getAllBlocks(false));
+        let createdBlock = null;
+
+        try {
+            if (_Blockly.serialization && _Blockly.serialization.blocks && typeof _Blockly.serialization.blocks.append === "function") {
+                createdBlock = _Blockly.serialization.blocks.append(data, ws);
+            } else if (data._legacyXml && typeof Blockly !== "undefined" && Blockly.Xml) {
+                const dom = Blockly.Xml.textToDom(data._legacyXml);
+                createdBlock = Blockly.Xml.domToBlock(dom, ws);
+            }
+        } catch (e) {
+            console.warn("[JS Code Stock] append failed:", e);
+        }
+
+        if (!createdBlock || typeof createdBlock.initSvg !== "function") {
+            const currentBlocks = ws.getAllBlocks(false);
+            for (const b of currentBlocks) {
+                if (!existingBlocks.has(b) && !b.getParent()) {
+                    createdBlock = b;
+                    break;
+                }
+            }
+        }
+
+        if (!createdBlock) return;
+
+        // 4. マウス位置へ移動
+        const coords = getWorkspaceCoords(ws, moveEvent);
+        if (typeof createdBlock.moveTo === "function") {
+            const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function(x,y){this.x=x;this.y=y;};
+            createdBlock.moveTo(new Coordinate(coords.x, coords.y));
+        }
+        if (typeof createdBlock.render === "function") {
+            createdBlock.render();
+        }
+        if (typeof createdBlock.select === "function") {
+            createdBlock.select();
+        }
+
+        // 5. Blockly ネイティブの Gesture (ブロックドラッグ状態) にバインドしてマウスに追従
+        try {
+            const gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
+            if (gesture) {
+                gesture.setStartBlock(createdBlock);
+                gesture.handleBlockStart(moveEvent, createdBlock);
+            }
+        } catch (err) {
+            console.warn("[JS Code Stock] Gesture binding failed:", err);
+        }
+    }
+
+    // アイテム名部分でのドラッグアウト監視
+    function attachDragOutListener(item, nameEl) {
+        nameEl.addEventListener("mousedown", (e) => {
+            if (e.button !== 0) return;
+            if (interactionMode === "blockEntry") return;
+
+            const startX = e.clientX, startY = e.clientY;
+            let draggedOut = false;
+
+            const onMouseMove = (moveEvent) => {
+                if (!panel) return;
+                const rect = panel.getBoundingClientRect();
+                const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
+                                  moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
+                const dist = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
+
+                // 5px以上移動かつパネル外に出た時点で発動
+                if (dist > 5 && isOutside && !draggedOut) {
+                    draggedOut = true;
+                    cleanup();
+                    startWorkspaceBlockDrag(item, moveEvent);
+                }
+            };
+
+            const onMouseUp = (upEvent) => {
+                cleanup();
+                if (!draggedOut) {
+                    // パネル内での通常クリック動作
+                    handleItemClick(item, nameEl);
+                }
+            };
+
+            const cleanup = () => {
+                document.removeEventListener("mousemove", onMouseMove);
+                document.removeEventListener("mouseup", onMouseUp);
+            };
+
+            document.addEventListener("mousemove", onMouseMove);
+            document.addEventListener("mouseup", onMouseUp);
+        });
+    }
+
+    function handleItemClick(item, nameEl) {
+        if (interactionMode === "workspacePaste") {
+            pasteSerializedStock(item.body).then(() => {
+                closePanel();
+                interactionMode = "normal";
+                pendingBlockData = null;
+            }).catch(e => setStatus(String(e)));
+        } else {
+            copyText(item.body).then(() => {
+                const msg = document.createElement("span");
+                msg.textContent = " COPY OK!";
+                msg.style.color = "#4a7bd4";
+                msg.style.fontSize = "13px";
+                msg.style.fontWeight = "bold";
+                msg.style.transition = "opacity 0.5s";
+                nameEl.appendChild(msg);
+                setTimeout(() => {
+                    msg.style.opacity = "0";
+                    setTimeout(() => msg.remove(), 500);
+                }, 500);
+            }).catch(e => setStatus(String(e)));
+        }
+    }
+
     function renderPanel() {
         if (!panel) return;
         panel.innerHTML = "";
@@ -501,7 +660,7 @@
             try {
                 const data = JSON.parse(clipboardData);
                 if (data.type) titleEl.value = data.type;
-            } catch (_) { }
+            } catch (_) {}
         });
         const clearBody = makeButton("✕", () => { bodyEl.value = ""; bodyEl.focus(); }, "jcs-clear");
         bodyWrap.append(bodyEl, clearBody);
@@ -545,7 +704,7 @@
         filter.className = "jcs-filter";
         const fc = document.createElement("div");
         fc.className = "jcs-tabs jcs-filter-colors";
-
+        
         const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
         fc.appendChild(all);
         state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
@@ -599,13 +758,12 @@
                 row.style.border = "1px dashed #888";
             }
 
-            // Drag handle button
+            // Drag handle (リスト内順序並び替え用)
             const drag = document.createElement("button");
             drag.className = "jcs-drag" + (selectedIds.has(id) ? " active" : "");
             drag.textContent = "≡";
             drag.draggable = true;
 
-            // Right click on handle: context menu
             drag.oncontextmenu = (e) => {
                 e.preventDefault();
                 if (!selectedIds.has(id)) {
@@ -617,7 +775,6 @@
                 showMenu(e, item);
             };
 
-            // Click on handle: Multi / Range select
             drag.onclick = (e) => {
                 e.stopPropagation();
                 let group = filtered.map(i => String(i.id));
@@ -643,7 +800,6 @@
                 renderList();
             };
 
-            // Drag & Drop reorder
             drag.ondragstart = () => {
                 if (!selectedIds.has(id)) {
                     selectedIds.clear();
@@ -694,37 +850,14 @@
                 renderList();
             };
 
-            // Name display & click copy
+            // コード名要素（ドラッグアウトでワークスペース配置、クリックでコピー）
             const name = document.createElement("div");
             name.className = "jcs-name";
             name.style.borderLeftColor = state.palette[item.color || 0];
             name.textContent = item.title;
-            name.title = interactionMode === "workspacePaste" ? "Click to paste into workspace" : "Click to copy code";
+            name.title = "ドラッグしてワークスペースに配置 / クリックでコピー";
+            attachDragOutListener(item, name);
 
-            name.onclick = async () => {
-                if (interactionMode === "workspacePaste") {
-                    await pasteSerializedStock(item.body);
-                    closePanel();
-                    interactionMode = "normal";
-                    pendingBlockData = null;
-                } else {
-                    copyText(item.body).then(() => {
-                        const msg = document.createElement("span");
-                        msg.textContent = " COPY OK!";
-                        msg.style.color = "#4a7bd4";
-                        msg.style.fontSize = "13px";
-                        msg.style.fontWeight = "bold";
-                        msg.style.transition = "opacity 0.5s";
-                        name.appendChild(msg);
-                        setTimeout(() => {
-                            msg.style.opacity = "0";
-                            setTimeout(() => msg.remove(), 500);
-                        }, 500);
-                    }).catch(e => setStatus(String(e)));
-                }
-            };
-
-            // Action buttons
             const actions = document.createElement("div");
             actions.className = "jcs-actions";
             actions.append(
@@ -750,7 +883,7 @@
             listEl.appendChild(row);
         });
 
-        // Bottom drop & paste zone
+        // リスト最下部のドロップ・貼り付けエリア
         let endDrop = document.createElement("div");
         endDrop.style.height = "16px";
         endDrop.style.marginTop = "2px";
@@ -920,7 +1053,7 @@
                             if (!values.includes(val)) b.fields[key] = values[0] || "";
                         }
                         temp.dispose(false);
-                    } catch (_) { }
+                    } catch (_) {}
                 }
             }
         });
@@ -938,7 +1071,7 @@
                     const xml = Blockly.Xml.blockToDom(block, true);
                     return { _legacyXml: Blockly.Xml.domToText(xml) };
                 }
-            } catch (_) { }
+            } catch (_) {}
             return null;
         }
     }
@@ -1007,19 +1140,19 @@
                 const ctm = canvas.getScreenCTM();
                 if (ctm && typeof ctm.inverse === "function") {
                     const p = pt.matrixTransform(ctm.inverse());
-                    mousePos = { x: p.x, y: p.y };
+                    mousePos = {x:p.x,y:p.y};
                 }
             }
-        } catch (_) { }
+        } catch (_) {}
         if (!mousePos) {
-            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) { }
+            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) {}
         }
         if (!mousePos) {
             const metrics = ws.getMetrics ? ws.getMetrics() : {};
-            mousePos = { x: (metrics.viewLeft || 0) + (metrics.viewWidth || 0) / 2, y: (metrics.viewTop || 0) + (metrics.viewHeight || 0) / 2 };
+            mousePos = {x:(metrics.viewLeft||0)+(metrics.viewWidth||0)/2,y:(metrics.viewTop||0)+(metrics.viewHeight||0)/2};
         }
         const dx = mousePos.x - originalX, dy = mousePos.y - originalY;
-        traverseSerializedBlocks(data, b => { b.x = (b.x || 0) + dx; b.y = (b.y || 0) + dy; });
+        traverseSerializedBlocks(data, b => { b.x=(b.x||0)+dx; b.y=(b.y||0)+dy; });
 
         if (_Blockly.serialization && _Blockly.serialization.blocks && typeof _Blockly.serialization.blocks.append === "function") {
             _Blockly.serialization.blocks.append(data, ws);
@@ -1043,7 +1176,7 @@
         state.filterChild = Array(PARENT_COUNT).fill(0);
         openPanel();
         renderPanel();
-        setStatus("Select a code entry to paste");
+        setStatus("Select or drag a code entry into workspace");
     }
 
     function openBlockEntryMode(block) {
@@ -1051,7 +1184,7 @@
             const data = extractBlockForClipboard(block);
             if (!data) throw new Error("Unable to serialize block");
             pendingBlockData = data;
-            copyText(JSON.stringify(data, null, 2)).catch(() => { });
+            copyText(JSON.stringify(data, null, 2)).catch(() => {});
             interactionMode = "blockEntry";
             editingIdValue = null;
             inputHidden = false;
@@ -1137,8 +1270,8 @@
 
     function reorderGroup(parent, child) {
         state.items.filter(x => x.parent === parent && x.child === child)
-            .sort((a, b) => (a.order || 0) - (b.order || 0))
-            .forEach((x, i) => x.order = i);
+            .sort((a,b) => (a.order || 0) - (b.order || 0))
+            .forEach((x,i) => x.order = i);
     }
 
     function exportData() {
@@ -1154,11 +1287,11 @@
         };
         const text = JSON.stringify(data, null, 2);
         copyText(text).then(() => setStatus("Export JSON copied to clipboard"));
-        const blob = new Blob([text], { type: "application/json" });
+        const blob = new Blob([text], {type:"application/json"});
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g,"-") + ".json";
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
     }
@@ -1324,7 +1457,7 @@
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
             attachMouseTracking(ws);
-        } catch (_) { }
+        } catch (_) {}
     };
 
 })();
