@@ -1352,12 +1352,34 @@
         }
         editingIdValue = null;
         saveState();
+
+        // ブロックから直接登録した場合の終了処理
         if (interactionMode === "blockEntry") {
-            closePanel();
             interactionMode = "normal";
             pendingBlockData = null;
+
+            // ⬒から一時展開されていた場合はその場で再折りたたみ
+            if (isTempExpanded) {
+                isTempExpanded = false;
+                isCollapsed = true;
+                renderPanel();
+                return;
+            }
+
+            // 🔓️（アンロック）なら閉じる、🔒️（ロック）なら閉じずに開いたまま維持
+            if (!isPinned) {
+                closePanel();
+                return;
+            }
+
+            // 🔒️ の場合は入力欄をクリアして閉じた状態（リスト一覧）にする
+            if (titleEl) titleEl.value = "";
+            if (bodyEl) bodyEl.value = "";
+            inputHidden = true;
+            renderPanel();
             return;
         }
+
         renderPanel();
     }
 
@@ -1383,16 +1405,32 @@
         editingIdValue = null;
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
-        if (isTempExpanded) {
-            isTempExpanded = false;
-            isCollapsed = true;
-        }
+
+        // ブロックから直接登録をキャンセルした場合
         if (interactionMode === "blockEntry") {
-            closePanel();
             interactionMode = "normal";
             pendingBlockData = null;
+
+            // ⬒から一時展開されていた場合はその場で再折りたたみ
+            if (isTempExpanded) {
+                isTempExpanded = false;
+                isCollapsed = true;
+                renderPanel();
+                return;
+            }
+
+            // 🔓️（アンロック）なら閉じる、🔒️（ロック）なら閉じずに開いたまま維持
+            if (!isPinned) {
+                closePanel();
+                return;
+            }
+
+            // 🔒️ の場合は入力欄を閉じてリスト一覧を表示
+            inputHidden = true;
+            renderPanel();
             return;
         }
+
         renderPanel();
     }
 
