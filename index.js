@@ -33,8 +33,6 @@
     let editingId = null;
     let inputHidden = false;
     let selectedIds = new Set();
-    let internalClipboard = [];
-    let clipboardMode = null;
     let panel = null;
     let listEl = null;
     let searchEl = null;
@@ -365,14 +363,6 @@
         statusEl.className = "jcs-status";
         statusEl.textContent = "Ready";
         foot.appendChild(statusEl);
-        const ftools = document.createElement("div");
-        ftools.className = "jcs-foot-tools";
-        ftools.append(
-            makeButton("PASTE", pasteSelected, "jcs-small"),
-            makeButton("NEW ENTRY", () => { editingIdValue = null; inputHidden = false; renderPanel(); setTimeout(() => titleEl && titleEl.focus(), 0); }, "jcs-small")
-        );
-        foot.appendChild(ftools);
-
         container.append(head, parentTabs, childTabs, colorTabs, inputSection, filter, listEl, foot);
         panel.appendChild(container);
         renderList();
@@ -914,45 +904,6 @@ function renameSubroutineIfNeeded(ws, data) {
 
     function selectedItems() {
         return state.items.filter(x => selectedIds.has(String(x.id)));
-    }
-
-    function pasteSelected() {
-        if (!internalClipboard.length) {
-            setStatus("Clipboard is empty");
-            return;
-        }
-        const targetParent = state.filterParent;
-        const targetChild = state.filterChild[targetParent];
-        const insert = clipboardMode === "copy"
-            ? internalClipboard.map(x => ({
-                id: uid(), title: x.title, body: x.body,
-                parent: targetParent, child: targetChild,
-                order: nextOrder(), color: x.color || 0
-            }))
-            : internalClipboard;
-
-        if (clipboardMode === "cut") {
-            insert.forEach(x => { x.parent = targetParent; x.child = targetChild; });
-            state.items = state.items.filter(x => !insert.includes(x));
-        }
-        state.items.push(...insert);
-        clipboardMode = null;
-        internalClipboard = [];
-        selectedIds.clear();
-        saveState();
-        renderPanel();
-    }
-
-    function copySelectedToInternal() {
-        internalClipboard = selectedItems().map(x => ({...x}));
-        clipboardMode = "copy";
-        setStatus(internalClipboard.length + " copied");
-    }
-
-    function cutSelectedToInternal() {
-        internalClipboard = selectedItems();
-        clipboardMode = "cut";
-        setStatus(internalClipboard.length + " cut");
     }
 
     function exportData() {
