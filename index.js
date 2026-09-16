@@ -550,19 +550,17 @@
                 const rect = panel.getBoundingClientRect();
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
                     moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
-                const dist = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
 
-                // パネル外に出た瞬間にブロック生成＆パネル消去
-                if (!isDragging && (isOutside || dist > 15)) {
+                // パネルの外へドラッグした瞬間にブロック生成（※CODESTOCKは閉じない）
+                if (!isDragging && isOutside) {
                     isDragging = true;
                     ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
                     if (ws) {
                         createdBlock = createBlockInstance(ws, item);
                     }
-                    closePanel();
                 }
 
-                // マウスカーソルにブロックをぴったり追従吸着（途中で落とさない）
+                // マウスカーソルにブロックをぴったり吸着追従
                 if (isDragging && createdBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
@@ -581,7 +579,6 @@
 
                 if (isDragging) {
                     if (createdBlock && ws) {
-                        // 最終位置にセット
                         const coords = getWorkspaceCoords(ws, upEvent);
                         const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                         if (typeof createdBlock.moveTo === "function") {
@@ -589,14 +586,14 @@
                         }
                         if (typeof createdBlock.render === "function") createdBlock.render();
 
-                        // ★ここで近くのブロックの中や間にパチンと自動結合
+                        // 近くのブロックの中や間に自動結合
                         autoConnectBlock(createdBlock);
 
                         if (typeof createdBlock.select === "function") createdBlock.select();
                         if (typeof createdBlock.bumpNeighbours === "function") createdBlock.bumpNeighbours();
                     }
                 } else {
-                    // パネル内クリック時はクリップボードコピー
+                    // パネル内でのクリック処理
                     handleItemClick(item, nameEl);
                 }
             };
@@ -606,12 +603,12 @@
         });
     }
 
+    // クリック時の処理：貼り付けモード時もパネルを閉じない
     function handleItemClick(item, nameEl) {
         if (interactionMode === "workspacePaste") {
             pasteSerializedStock(item.body).then(() => {
-                closePanel();
-                interactionMode = "normal";
-                pendingBlockData = null;
+                // closePanel() を削除して開いたまま維持
+                setStatus("Pasted into workspace");
             }).catch(e => setStatus(String(e)));
         } else {
             copyText(item.body).then(() => {
