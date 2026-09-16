@@ -207,9 +207,9 @@
 #js-code-stock-panel .jcs-foot-tools{display:flex;gap:4px}
 #js-code-stock-panel .jcs-hidden{display:none!important}
 #js-code-stock-panel input:focus,#js-code-stock-panel textarea:focus{outline:1px solid #4a7bd4}
-#js-code-stock-panel .jcs-pin{font-size:13px;padding:3px 5px;background:#333}
+#js-code-stock-panel .jcs-pin{font-size:16px;padding:2px 8px;background:#333}
 #js-code-stock-panel .jcs-pin.unlocked{opacity:0.45;filter:grayscale(1)}
-#js-code-stock-panel .jcs-collapse{font-size:13px;padding:3px 5px;background:#333}
+#js-code-stock-panel .jcs-collapse{font-size:16px;padding:2px 8px;background:#333}
 #js-code-stock-panel.collapsed{height:auto!important;min-height:0!important;resize:none}
 `;
         document.head.appendChild(style);
@@ -594,7 +594,7 @@
                 // パネル外へ出た瞬間に発動
                 if (isOutside) {
                     isDragging = true;
-                    cleanup(); // 自前の監視を解除し、Blocklyへ操作権を完全委譲
+                    cleanup();
 
                     const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
                     if (!ws) return;
@@ -603,17 +603,21 @@
                     const createdBlock = createBlockInstance(ws, item);
                     if (!createdBlock) return;
 
-                    // 2. マウス位置へ初期配置して描画
+                    // 2. ★ここが核心：カーソルがブロックの左上内側（確実に掴める位置）に乗るようオフセット補正
+                    // Xを-15px、Yを-12px手前に置くことで、カーソルの直下にブロックの肉が確実に重なります
                     const coords = getWorkspaceCoords(ws, moveEvent);
+                    const grabOffsetX = 15;
+                    const grabOffsetY = 12;
+
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                     if (typeof createdBlock.moveTo === "function") {
-                        createdBlock.moveTo(new Coordinate(coords.x, coords.y));
+                        createdBlock.moveTo(new Coordinate(coords.x - grabOffsetX, coords.y - grabOffsetY));
                     }
                     if (typeof createdBlock.render === "function") {
                         createdBlock.render();
                     }
 
-                    // 3. パネルの状態制御（アンロックなら閉じる / 一時展開なら折りたたみ）
+                    // 3. パネルの状態制御
                     if (isTempExpanded) {
                         isTempExpanded = false;
                         isCollapsed = true;
@@ -622,21 +626,20 @@
                         closePanel();
                     }
 
-                    // 4. ★ここが核心：Blocklyに「掴み直した」と認識させ、通常ドラッグ（隙間空き・挿入プレビュー）を強制起動！
+                    // 4. BlocklyのGestureに掴ませて通常ドラッグ（隙間空け・プレビュー）を開始
                     try {
                         const gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
                         if (gesture) {
                             gesture.setStartBlock(createdBlock);
                             gesture.handleBlockStart(moveEvent, createdBlock);
 
-                            // ドラッグ状態（ブロック間を空ける・穴のハイライトプレビュー）へ即時移行
+                            // 即座に隙間空け・挿入マーカーモードを起動
                             if (typeof gesture.startDraggingBlock === "function") {
                                 gesture.startDraggingBlock();
                             } else if (typeof gesture.startDraggingBlock_ === "function") {
                                 gesture.startDraggingBlock_();
                             }
                         } else {
-                            // フォールバック：ブロックSVGへ直接イベントを送って掴ませる
                             const svg = createdBlock.getSvgRoot && createdBlock.getSvgRoot();
                             if (svg) {
                                 svg.dispatchEvent(new MouseEvent("mousedown", {
