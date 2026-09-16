@@ -1,0 +1,8 @@
+{
+  "id": "jsCodeStock",
+  "name": "JS Code Stock",
+  "version": "2.0.0",
+  "description": "Code snippet stock converted from the JSCodeStock Chrome extension for BF2042 Portal Extensions.",
+  "author": "Converted for BF2042 Portal Extensions",
+  "main": "index.js"
+}

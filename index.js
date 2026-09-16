@@ -1,0 +1,653 @@
+/* global BF2042Portal, _Blockly */
+(function () {
+    "use strict";
+
+    const plugin = BF2042Portal.Plugins.getPlugin("jsCodeStock");
+    const STORAGE_KEY = "BF2042Portal_JSCodeStock_v1";
+    const DEFAULT_PARENTS = ["A", "B", "C", "D"];
+    const DEFAULT_CHILDREN = [
+        ["A-0", "A-1", "A-2", "A-3", "A-4"],
+        ["B-0", "B-1", "B-2", "B-3", "B-4"],
+        ["C-0", "C-1", "C-2", "C-3", "C-4"],
+        ["D-0", "D-1", "D-2", "D-3", "D-4"]
+    ];
+    const DEFAULT_PALETTE = [
+        "#e74c3c", "#f39c12", "#f1c40f", "#2ecc71",
+        "#3498db", "#9b59b6", "#666666", "#ffffff"
+    ];
+
+    let state = {
+        items: [],
+        parents: DEFAULT_PARENTS.slice(),
+        children: DEFAULT_CHILDREN.map(x => x.slice()),
+        palette: DEFAULT_PALETTE.slice(),
+        filterParent: 0,
+        filterChild: [0, 0, 0, 0],
+        filterColor: null,
+        currentColor: 0
+    };
+    let editingId = null;
+    let selectedIds = new Set();
+    let internalClipboard = [];
+    let clipboardMode = null;
+    let panel = null;
+    let listEl = null;
+    let searchEl = null;
+    let titleEl = null;
+    let bodyEl = null;
+    let statusEl = null;
+
+    function cloneDefault() {
+        return {
+            items: [],
+            parents: DEFAULT_PARENTS.slice(),
+            children: DEFAULT_CHILDREN.map(x => x.slice()),
+            palette: DEFAULT_PALETTE.slice(),
+            filterParent: 0,
+            filterChild: [0, 0, 0, 0],
+            filterColor: null,
+            currentColor: 0
+        };
+    }
+
+    function loadState() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            const saved = JSON.parse(raw);
+            const d = cloneDefault();
+            state = Object.assign(d, saved);
+            if (!Array.isArray(state.filterChild)) state.filterChild = [0,0,0,0];
+            if (!Array.isArray(state.parents) || state.parents.length !== 4) state.parents = d.parents;
+            if (!Array.isArray(state.children) || state.children.length !== 4) state.children = d.children;
+            if (!Array.isArray(state.palette) || state.palette.length !== 8) state.palette = d.palette;
+            if (!Array.isArray(state.items)) state.items = [];
+        } catch (e) {
+            console.error("[JS Code Stock] load failed", e);
+        }
+    }
+
+    function saveState() {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            setStatus("Saved");
+        } catch (e) {
+            setStatus("Save failed");
+            BF2042Portal.Shared.logError("JS Code Stock", String(e));
+        }
+    }
+
+    function uid() {
+        if (crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+        return "item-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    }
+
+    function esc(s) {
+        return String(s ?? "").replace(/[&<>"']/g, c => ({
+            "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+        }[c]));
+    }
+
+    function setStatus(text) {
+        if (statusEl) statusEl.textContent = text;
+    }
+
+    function copyText(text) {
+        if (BF2042Portal.Shared && BF2042Portal.Shared.copyTextToClipboard) {
+            return Promise.resolve(BF2042Portal.Shared.copyTextToClipboard(text));
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+        return Promise.reject(new Error("Clipboard API unavailable"));
+    }
+
+    function pasteText() {
+        if (BF2042Portal.Shared && BF2042Portal.Shared.pasteTextFromClipboard) {
+            return Promise.resolve(BF2042Portal.Shared.pasteTextFromClipboard());
+        }
+        if (navigator.clipboard && navigator.clipboard.readText) {
+            return navigator.clipboard.readText();
+        }
+        return Promise.reject(new Error("Clipboard API unavailable"));
+    }
+
+    function injectStyle() {
+        if (document.getElementById("js-code-stock-style")) return;
+        const style = document.createElement("style");
+        style.id = "js-code-stock-style";
+        style.textContent = `
+#js-code-stock-panel{position:fixed;right:22px;top:72px;width:390px;height:calc(100vh - 100px);z-index:2147483646;background:#202020;color:#ddd;border:1px solid #4b4b4b;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.55);font:12px Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+#js-code-stock-panel *{box-sizing:border-box}
+#js-code-stock-panel .jcs-head{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#292929;border-bottom:1px solid #444}
+#js-code-stock-panel .jcs-title{font-size:15px;font-weight:bold}
+#js-code-stock-panel button{background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 8px;cursor:pointer}
+#js-code-stock-panel button:hover{background:#3a3a3a}
+#js-code-stock-panel .jcs-tools{display:flex;gap:5px}
+#js-code-stock-panel .jcs-tabs{display:flex;gap:4px;overflow:auto;padding:6px 7px 2px}
+#js-code-stock-panel .jcs-tab{min-width:30px;text-align:center;padding:4px 6px;border:1px solid #4c4c4c;border-radius:4px;cursor:pointer;white-space:nowrap}
+#js-code-stock-panel .jcs-tab.active{background:#4a7bd4;color:#fff}
+#js-code-stock-panel .jcs-colors .jcs-tab{width:24px;min-width:24px;height:16px;padding:0}
+#js-code-stock-panel .jcs-input{padding:7px;border-bottom:1px solid #444}
+#js-code-stock-panel .jcs-input input,#js-code-stock-panel .jcs-input textarea,#js-code-stock-panel .jcs-search{width:100%;background:#292929;color:#eee;border:1px solid #555;border-radius:4px;padding:6px;margin-bottom:5px}
+#js-code-stock-panel .jcs-input textarea{height:100px;resize:vertical;font-family:monospace}
+#js-code-stock-panel .jcs-row{display:flex;gap:5px}
+#js-code-stock-panel .jcs-row>*{flex:1}
+#js-code-stock-panel .jcs-filter{padding:5px 7px;border-bottom:1px solid #444}
+#js-code-stock-panel .jcs-list{flex:1;overflow:auto;padding:6px}
+#js-code-stock-panel .jcs-item{display:grid;grid-template-columns:28px 1fr auto;gap:6px;align-items:center;padding:5px;margin-bottom:4px;background:#292929;border:1px solid #404040;border-radius:4px}
+#js-code-stock-panel .jcs-item.selected{outline:1px solid #4a7bd4}
+#js-code-stock-panel .jcs-drag{font-size:17px;padding:2px;cursor:pointer}
+#js-code-stock-panel .jcs-name{padding:5px;border-left:6px solid #666;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#js-code-stock-panel .jcs-actions{display:flex;gap:3px}
+#js-code-stock-panel .jcs-small{font-size:11px;padding:3px 5px}
+#js-code-stock-panel .jcs-foot{padding:5px 8px;border-top:1px solid #444;display:flex;justify-content:space-between;align-items:center}
+#js-code-stock-panel .jcs-status{color:#aaa}
+#js-code-stock-panel .jcs-hidden{display:none}
+`;
+        document.head.appendChild(style);
+    }
+
+    function makeButton(text, fn, cls) {
+        const b = document.createElement("button");
+        b.textContent = text;
+        if (cls) b.className = cls;
+        b.onclick = fn;
+        return b;
+    }
+
+    function renderPanel() {
+        if (!panel) return;
+        panel.innerHTML = "";
+
+        const head = document.createElement("div");
+        head.className = "jcs-head";
+        const ttl = document.createElement("div");
+        ttl.className = "jcs-title";
+        ttl.textContent = "🐛 JS Code Stock";
+        const tools = document.createElement("div");
+        tools.className = "jcs-tools";
+        tools.appendChild(makeButton("EXPORT", exportData));
+        tools.appendChild(makeButton("IMPORT", importData));
+        tools.appendChild(makeButton("×", closePanel));
+        head.append(ttl, tools);
+
+        const parentTabs = document.createElement("div");
+        parentTabs.className = "jcs-tabs";
+        state.parents.forEach((name, i) => {
+            const b = makeButton(name, () => {
+                state.filterParent = i;
+                renderPanel();
+            }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
+            b.oncontextmenu = e => {
+                e.preventDefault();
+                const name2 = prompt("Folder name", state.parents[i]);
+                if (name2 && name2.trim()) {
+                    state.parents[i] = name2.trim();
+                    saveState(); renderPanel();
+                }
+            };
+            parentTabs.appendChild(b);
+        });
+
+        const childTabs = document.createElement("div");
+        childTabs.className = "jcs-tabs";
+        state.children[state.filterParent].forEach((name, i) => {
+            const b = makeButton(name, () => {
+                state.filterChild[state.filterParent] = i;
+                renderPanel();
+            }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
+            b.oncontextmenu = e => {
+                e.preventDefault();
+                const name2 = prompt("SubFolder name", state.children[state.filterParent][i]);
+                if (name2 && name2.trim()) {
+                    state.children[state.filterParent][i] = name2.trim();
+                    saveState(); renderPanel();
+                }
+            };
+            childTabs.appendChild(b);
+        });
+
+        const colorTabs = document.createElement("div");
+        colorTabs.className = "jcs-tabs jcs-colors";
+        state.palette.forEach((c, i) => {
+            const b = makeButton("", () => {
+                state.currentColor = i;
+                renderPanel();
+            }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
+            b.style.background = c;
+            b.title = "Color " + (i + 1) + " — right click to change";
+            b.oncontextmenu = e => {
+                e.preventDefault();
+                const picker = document.createElement("input");
+                picker.type = "color"; picker.value = state.palette[i];
+                picker.onchange = () => { state.palette[i] = picker.value; saveState(); renderPanel(); };
+                picker.click();
+            };
+            colorTabs.appendChild(b);
+        });
+
+        const input = document.createElement("div");
+        input.className = "jcs-input";
+        titleEl = document.createElement("input");
+        titleEl.placeholder = "🏷️ Code name";
+        bodyEl = document.createElement("textarea");
+        bodyEl.placeholder = "📝 Code body";
+        const add = makeButton(hasEditingId() ? "UPDATE" : "ADD", addItem);
+        const cancel = makeButton("CANCEL", cancelEdit);
+        const inputRow = document.createElement("div");
+        inputRow.className = "jcs-row";
+        inputRow.append(add, cancel);
+        input.append(titleEl, bodyEl, inputRow);
+
+        const filter = document.createElement("div");
+        filter.className = "jcs-filter";
+        const fc = document.createElement("div");
+        fc.className = "jcs-tabs";
+        const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
+        fc.appendChild(all);
+        state.palette.forEach((c, i) => {
+            const b = makeButton("", () => {
+                state.filterColor = state.filterColor === i ? null : i;
+                renderPanel();
+            }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
+            b.style.background = c; b.style.width = "24px"; b.style.minWidth = "24px"; b.style.height = "16px"; b.style.padding = "0";
+            fc.appendChild(b);
+        });
+        searchEl = document.createElement("input");
+        searchEl.className = "jcs-search";
+        searchEl.placeholder = "🔎 search";
+        searchEl.oninput = renderList;
+        filter.append(fc, searchEl);
+
+        listEl = document.createElement("div");
+        listEl.className = "jcs-list";
+
+        const foot = document.createElement("div");
+        foot.className = "jcs-foot";
+        statusEl = document.createElement("span");
+        statusEl.className = "jcs-status";
+        statusEl.textContent = "Ready";
+        foot.appendChild(statusEl);
+        const ftools = document.createElement("div");
+        ftools.append(
+            makeButton("PASTE", pasteSelected, "jcs-small"),
+            makeButton("NEW", () => { editingId = null; renderPanel(); titleEl.focus(); }, "jcs-small")
+        );
+        foot.appendChild(ftools);
+
+        panel.append(head, parentTabs, childTabs, colorTabs, input, filter, listEl, foot);
+        renderList();
+
+        if (hasEditingId()) {
+            const item = state.items.find(x => x.id === editingId());
+            if (item) {
+                titleEl.value = item.title;
+                bodyEl.value = item.body;
+            }
+        }
+    }
+
+    function hasEditingId() { return !!editingIdValue; }
+    let editingIdValue = null;
+
+    function renderList() {
+        if (!listEl) return;
+        listEl.innerHTML = "";
+        const q = searchEl ? searchEl.value.toLowerCase() : "";
+        let filtered = state.items.filter(item =>
+            item.parent === state.filterParent &&
+            item.child === state.filterChild[state.filterParent] &&
+            (state.filterColor === null || (item.color || 0) === state.filterColor) &&
+            String(item.title).toLowerCase().includes(q)
+        );
+        filtered.sort((a,b) => (a.order || 0) - (b.order || 0));
+
+        filtered.forEach(item => {
+            const row = document.createElement("div");
+            row.className = "jcs-item" + (selectedIds.has(String(item.id)) ? " selected" : "");
+            const drag = makeButton("≡", () => {
+                if (selectedIds.has(String(item.id))) selectedIds.delete(String(item.id));
+                else { selectedIds.clear(); selectedIds.add(String(item.id)); }
+                renderList();
+            }, "jcs-drag");
+            const name = document.createElement("div");
+            name.className = "jcs-name";
+            name.style.borderLeftColor = state.palette[item.color || 0];
+            name.textContent = item.title;
+            name.title = "Click to copy code";
+            name.onclick = () => {
+                copyText(item.body).then(() => setStatus("COPY OK!")).catch(e => setStatus(String(e)));
+            };
+            name.ondblclick = () => editItem(item);
+            const actions = document.createElement("div");
+            actions.className = "jcs-actions";
+            actions.append(
+                makeButton("EDIT", () => editItem(item), "jcs-small"),
+                makeButton("×", () => deleteItem(item), "jcs-small")
+            );
+            row.append(drag, name, actions);
+            listEl.appendChild(row);
+        });
+
+        if (!filtered.length) {
+            const empty = document.createElement("div");
+            empty.style.padding = "20px";
+            empty.style.textAlign = "center";
+            empty.style.color = "#888";
+            empty.textContent = "No snippets";
+            listEl.appendChild(empty);
+        }
+    }
+
+    function addItem() {
+        const title = titleEl && titleEl.value.trim();
+        const body = bodyEl ? bodyEl.value : "";
+        if (!title) return setStatus("Code name is required");
+
+        if (editingIdValue) {
+            const item = state.items.find(x => x.id === editingIdValue);
+            if (item) {
+                item.title = title;
+                item.body = body;
+                item.parent = state.filterParent;
+                item.child = state.filterChild[state.filterParent];
+                item.color = state.currentColor;
+            }
+        } else {
+            state.items.push({
+                id: uid(),
+                title,
+                body,
+                parent: state.filterParent,
+                child: state.filterChild[state.filterParent],
+                order: nextOrder(),
+                color: state.currentColor
+            });
+        }
+        editingIdValue = null;
+        saveState();
+        renderPanel();
+    }
+
+    function nextOrder() {
+        const group = state.items.filter(x =>
+            x.parent === state.filterParent &&
+            x.child === state.filterChild[state.filterParent]
+        );
+        return group.length;
+    }
+
+    function editItem(item) {
+        editingIdValue = item.id;
+        state.filterParent = item.parent;
+        state.filterChild[item.parent] = item.child;
+        state.currentColor = item.color || 0;
+        renderPanel();
+        titleEl.focus();
+    }
+
+    function cancelEdit() {
+        editingIdValue = null;
+        if (titleEl) titleEl.value = "";
+        if (bodyEl) bodyEl.value = "";
+        renderPanel();
+    }
+
+    function deleteItem(item) {
+        if (!confirm("Delete this snippet?")) return;
+        state.items = state.items.filter(x => x.id !== item.id);
+        selectedIds.delete(String(item.id));
+        reorderGroup(item.parent, item.child);
+        saveState();
+        renderPanel();
+    }
+
+    function reorderGroup(parent, child) {
+        state.items.filter(x => x.parent === parent && x.child === child)
+            .sort((a,b) => (a.order || 0) - (b.order || 0))
+            .forEach((x,i) => x.order = i);
+    }
+
+    function selectedItems() {
+        return state.items.filter(x => selectedIds.has(String(x.id)));
+    }
+
+    function pasteSelected() {
+        if (!internalClipboard.length) {
+            setStatus("Clipboard is empty");
+            return;
+        }
+        const targetParent = state.filterParent;
+        const targetChild = state.filterChild[targetParent];
+        const insert = clipboardMode === "copy"
+            ? internalClipboard.map(x => ({
+                id: uid(), title: x.title, body: x.body,
+                parent: targetParent, child: targetChild,
+                order: nextOrder(), color: x.color || 0
+            }))
+            : internalClipboard;
+
+        if (clipboardMode === "cut") {
+            insert.forEach(x => { x.parent = targetParent; x.child = targetChild; });
+            state.items = state.items.filter(x => !insert.includes(x));
+        }
+        state.items.push(...insert);
+        clipboardMode = null;
+        internalClipboard = [];
+        selectedIds.clear();
+        saveState();
+        renderPanel();
+    }
+
+    function copySelectedToInternal() {
+        internalClipboard = selectedItems().map(x => ({...x}));
+        clipboardMode = "copy";
+        setStatus(internalClipboard.length + " copied");
+    }
+
+    function cutSelectedToInternal() {
+        internalClipboard = selectedItems();
+        clipboardMode = "cut";
+        setStatus(internalClipboard.length + " cut");
+    }
+
+    function exportData() {
+        const data = {
+            items: state.items,
+            config: {
+                parents: state.parents,
+                children: state.children,
+                filterParent: state.filterParent,
+                filterChild: state.filterChild,
+                palette: state.palette
+            }
+        };
+        const text = JSON.stringify(data, null, 2);
+        copyText(text).then(() => setStatus("Export JSON copied to clipboard"));
+        const blob = new Blob([text], {type:"application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g,"-") + ".json";
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    function importData() {
+        const input = document.createElement("input");
+        input.type = "file"; input.accept = ".json,application/json";
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const data = JSON.parse(reader.result);
+                    if (!confirm("Overwrite current JS Code Stock data?")) return;
+                    if (Array.isArray(data.items)) state.items = data.items;
+                    if (data.config) {
+                        if (Array.isArray(data.config.parents)) state.parents = data.config.parents;
+                        if (Array.isArray(data.config.children)) state.children = data.config.children;
+                        if (Array.isArray(data.config.palette)) state.palette = data.config.palette;
+                        if (data.config.filterParent !== undefined) state.filterParent = data.config.filterParent;
+                        if (Array.isArray(data.config.filterChild)) state.filterChild = data.config.filterChild;
+                    }
+                    saveState(); renderPanel(); setStatus("Import complete");
+                } catch (e) {
+                    setStatus("Loading failed");
+                    BF2042Portal.Shared.logError("JS Code Stock import", String(e));
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+
+    function openPanel() {
+        if (panel) {
+            panel.style.display = "flex";
+            renderPanel();
+            return;
+        }
+        injectStyle();
+        panel = document.createElement("div");
+        panel.id = "js-code-stock-panel";
+        document.body.appendChild(panel);
+        renderPanel();
+    }
+
+    function closePanel() {
+        if (panel) panel.style.display = "none";
+    }
+
+    function registerMenus() {
+        const Scope = _Blockly.ContextMenuRegistry.ScopeType;
+
+        const menu = plugin.createMenu(
+            "jsCodeStock",
+            "JS Code Stock",
+            Scope.WORKSPACE
+        );
+        menu.options = [
+            "items.jsCodeStockOpen",
+            "items.jsCodeStockNew",
+            "items.jsCodeStockPaste",
+            "items.jsCodeStockCopy",
+            "items.jsCodeStockCut"
+        ];
+        plugin.registerMenu(menu);
+        _Blockly.ContextMenuRegistry.registry.register(menu);
+
+        const items = [
+            {
+                id: "jsCodeStockOpen",
+                displayText: "Open JS Code Stock",
+                scopeType: Scope.WORKSPACE,
+                weight: 90,
+                preconditionFn: () => "enabled",
+                callback: () => openPanel()
+            },
+            {
+                id: "jsCodeStockNew",
+                displayText: "New Code Stock Entry",
+                scopeType: Scope.WORKSPACE,
+                weight: 91,
+                preconditionFn: () => "enabled",
+                callback: () => {
+                    openPanel();
+                    editingIdValue = null;
+                    renderPanel();
+                    setTimeout(() => titleEl && titleEl.focus(), 0);
+                }
+            },
+            {
+                id: "jsCodeStockPaste",
+                displayText: "Paste Code Stock to Clipboard",
+                scopeType: Scope.WORKSPACE,
+                weight: 92,
+                preconditionFn: () => "enabled",
+                callback: async () => {
+                    try {
+                        const text = await pasteText();
+                        if (text) {
+                            openPanel();
+                            bodyEl.value = text;
+                            if (!titleEl.value.trim()) {
+                                try {
+                                    const parsed = JSON.parse(text);
+                                    if (parsed.type) titleEl.value = parsed.type;
+                                } catch (_) {}
+                            }
+                        }
+                    } catch (e) {
+                        BF2042Portal.Shared.logError("JS Code Stock", String(e));
+                    }
+                }
+            },
+            {
+                id: "jsCodeStockCopy",
+                displayText: "Copy Selected Stock",
+                scopeType: Scope.WORKSPACE,
+                weight: 93,
+                preconditionFn: () => selectedIds.size ? "enabled" : "disabled",
+                callback: () => copySelectedToInternal()
+            },
+            {
+                id: "jsCodeStockCut",
+                displayText: "Cut Selected Stock",
+                scopeType: Scope.WORKSPACE,
+                weight: 94,
+                preconditionFn: () => selectedIds.size ? "enabled" : "disabled",
+                callback: () => cutSelectedToInternal()
+            }
+        ];
+        items.forEach(item => plugin.registerItem(item));
+
+        const blockMenu = plugin.createMenu(
+            "jsCodeStockBlock",
+            "JS Code Stock",
+            Scope.BLOCK
+        );
+        blockMenu.options = [
+            "items.jsCodeStockOpenBlock",
+            "items.jsCodeStockSaveBlock"
+        ];
+        plugin.registerMenu(blockMenu);
+        _Blockly.ContextMenuRegistry.registry.register(blockMenu);
+
+        plugin.registerItem({
+            id: "jsCodeStockOpenBlock",
+            displayText: "Open JS Code Stock",
+            scopeType: Scope.BLOCK,
+            weight: 90,
+            preconditionFn: () => "enabled",
+            callback: () => openPanel()
+        });
+        plugin.registerItem({
+            id: "jsCodeStockSaveBlock",
+            displayText: "Copy Selected Blocks Info",
+            scopeType: Scope.BLOCK,
+            weight: 91,
+            preconditionFn: () => "enabled",
+            callback: async scope => {
+                try {
+                    const blocks = plugin.getSelectedBlocks(scope) || [];
+                    await copyText(JSON.stringify(blocks, null, 2));
+                    setStatus(blocks.length + " block(s) copied");
+                } catch (e) {
+                    BF2042Portal.Shared.logError("JS Code Stock blocks", String(e));
+                }
+            }
+        });
+    }
+
+    plugin.initializeWorkspace = function () {
+        loadState();
+        if (!document.getElementById("js-code-stock-panel")) {
+            // UI is intentionally lazy; only the menu is installed on workspace initialization.
+        }
+    };
+
+    registerMenus();
+})();
