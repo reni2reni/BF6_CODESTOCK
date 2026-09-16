@@ -1040,19 +1040,23 @@ function renameSubroutineIfNeeded(ws, data) {
     function registerMenus() {
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
-        // Register the action itself as a top-level Blockly context-menu item.
-        // Do NOT create a plugin submenu here: selecting "JS Code Stock" must
-        // launch the requested action immediately.
-        plugin.registerItem({
+        // IMPORTANT: The Portal sample shows that plugin.registerItem() only
+        // adds the item to the plugin's item registry. A top-level Blockly
+        // context-menu entry must ALSO be registered with Blockly's registry.
+        // Do not create a menu here, otherwise Blockly displays a second
+        // submenu before running JS Code Stock.
+        const workspaceItem = {
             id: "jsCodeStockWorkspace",
             displayText: "JS Code Stock",
             scopeType: Scope.WORKSPACE,
             weight: 90,
             preconditionFn: () => "enabled",
             callback: () => openWorkspacePasteMode()
-        });
+        };
+        plugin.registerItem(workspaceItem);
+        _Blockly.ContextMenuRegistry.registry.register(workspaceItem);
 
-        plugin.registerItem({
+        const blockItem = {
             id: "jsCodeStockBlock",
             displayText: "JS Code Stock",
             scopeType: Scope.BLOCK,
@@ -1062,7 +1066,9 @@ function renameSubroutineIfNeeded(ws, data) {
                 const blocks = plugin.getSelectedBlocks(scope) || [];
                 if (blocks.length) openBlockEntryMode(blocks[0]);
             }
-        });
+        };
+        plugin.registerItem(blockItem);
+        _Blockly.ContextMenuRegistry.registry.register(blockItem);
     }
 
     plugin.initializeWorkspace = function () {
