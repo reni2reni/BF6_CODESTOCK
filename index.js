@@ -1013,8 +1013,8 @@
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
         const workspaceItem = {
-            id: "jsCodeStockWorkspace",
-            displayText: "JS Code Stock",
+            id: "CodeStockWorkspace",
+            displayText: "Code Stock",
             scopeType: Scope.WORKSPACE,
             weight: 90,
             preconditionFn: () => "enabled",
