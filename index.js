@@ -572,7 +572,7 @@
         }
     }
 
-    // ドラッグ＆ドロップ配置：マウスを離すまで絶対に落ちず吸着し、離した瞬間にブロック内へ自動挿入
+    // ドラッグ＆ドロップ配置：逃げないように弾き飛ばし処理を撤廃し、数値穴へも確実に結合
     function attachDragOutListener(item, nameEl) {
         nameEl.addEventListener("mousedown", (e) => {
             if (e.button !== 0) return;
