@@ -40,6 +40,7 @@
 
     let isPinned = true; // 🔒️ ロック状態（falseだと操作後に自動で閉じる）
     let isCollapsed = false; // ⬒ 折りたたみ最小化状態
+    let isTempExpanded = false; // メニューから呼ばれた際の一時展開フラグ
     let savedPanelHeight = "600px";
     let panel = null;
     let listEl = null;
@@ -597,8 +598,15 @@
                         if (typeof createdBlock.select === "function") createdBlock.select();
                         if (typeof createdBlock.bumpNeighbours === "function") createdBlock.bumpNeighbours();
                     }
-                    // ★ アンロック（🔓️）状態なら操作完了後にパネルを閉じる
-                    if (!isPinned) closePanel();
+
+                    // ★ 一時展開されていた場合はその場で再び折りたたむ
+                    if (isTempExpanded) {
+                        isTempExpanded = false;
+                        isCollapsed = true;
+                        renderPanel();
+                    } else if (!isPinned) {
+                        closePanel();
+                    }
                 } else {
                     handleItemClick(item, nameEl);
                 }
@@ -614,8 +622,15 @@
         if (interactionMode === "workspacePaste") {
             pasteSerializedStock(item.body).then(() => {
                 setStatus("Pasted into workspace");
-                // ★ アンロック（🔓️）状態なら操作後にパネルを閉じる
-                if (!isPinned) closePanel();
+
+                // ★ 一時展開されていた場合はその場で再び折りたたむ
+                if (isTempExpanded) {
+                    isTempExpanded = false;
+                    isCollapsed = true;
+                    renderPanel();
+                } else if (!isPinned) {
+                    closePanel();
+                }
             }).catch(e => setStatus(String(e)));
         } else {
             copyText(item.body).then(() => {
@@ -633,6 +648,7 @@
             }).catch(e => setStatus(String(e)));
         }
     }
+
 
     function renderPanel() {
         if (!panel) return;
@@ -1267,6 +1283,13 @@
         inputHidden = true;
         state.filterParent = 0;
         state.filterChild = Array(PARENT_COUNT).fill(0);
+
+        // ★ 折りたたみ中なら一時展開
+        if (isCollapsed) {
+            isTempExpanded = true;
+            isCollapsed = false;
+        }
+
         openPanel();
         renderPanel();
         setStatus("Select or drag a code entry into workspace");
@@ -1283,6 +1306,13 @@
             inputHidden = false;
             state.filterParent = 0;
             state.filterChild = Array(PARENT_COUNT).fill(0);
+
+            // ★ 折りたたみ中なら一時展開
+            if (isCollapsed) {
+                isTempExpanded = true;
+                isCollapsed = false;
+            }
+
             openPanel();
             renderPanel();
             titleEl.value = blockTypeName(data);
@@ -1293,6 +1323,7 @@
             BF2042Portal.Shared.logError("JS Code Stock block entry", String(e));
         }
     }
+
 
     function addItem() {
         const title = titleEl && titleEl.value.trim();
@@ -1352,6 +1383,10 @@
         editingIdValue = null;
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
+        if (isTempExpanded) {
+            isTempExpanded = false;
+            isCollapsed = true;
+        }
         if (interactionMode === "blockEntry") {
             closePanel();
             interactionMode = "normal";
@@ -1493,7 +1528,10 @@
             panel.style.display = "flex";
             renderPanel();
             enablePanelDragging();
-            requestAnimationFrame(positionPanelAtContext);
+            // ★ 🔒️（isPinned）がONの場合はメニューから呼ばれても位置を移動させない
+            if (!isPinned) {
+                requestAnimationFrame(positionPanelAtContext);
+            }
             return;
         }
         injectStyle();
@@ -1506,6 +1544,10 @@
     }
 
     function closePanel() {
+        if (isTempExpanded) {
+            isTempExpanded = false;
+            isCollapsed = true;
+        }
         if (panel) panel.style.display = "none";
         interactionMode = "normal";
         pendingBlockData = null;
