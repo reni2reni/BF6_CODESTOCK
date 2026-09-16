@@ -694,7 +694,7 @@
         head.className = "jcs-head";
         const ttl = document.createElement("div");
         ttl.className = "jcs-title";
-        ttl.textContent = "🐛JS Stock";
+        ttl.textContent = "🐛Stock";
         const tools = document.createElement("div");
         tools.className = "jcs-tools";
         tools.appendChild(makeButton("EXPORT", exportData));
