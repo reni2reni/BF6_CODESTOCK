@@ -67,17 +67,15 @@
             const saved = JSON.parse(raw);
             const d = cloneDefault();
             state = Object.assign(d, saved);
+
+            // 初期のタブ選択は常に 親0、子0 にリセット
             state.filterParent = 0;
             state.filterChild = Array(PARENT_COUNT).fill(0);
-            if (!Array.isArray(state.parents) || state.parents.length !== PARENT_COUNT) state.parents = d.parents;
-            if (!Array.isArray(state.filterChild)) state.filterChild = Array(PARENT_COUNT).fill(0);
-            if (state.filterChild.length !== PARENT_COUNT) state.filterChild = Array(PARENT_COUNT).fill(0);
-            state.filterChild = state.filterChild.map((v) => Number.isInteger(v) && v >= 0 && v < CHILD_COUNT ? v : 0);
+
             if (!Array.isArray(state.parents) || state.parents.length !== PARENT_COUNT) state.parents = d.parents;
             if (!Array.isArray(state.children) || state.children.length !== PARENT_COUNT) {
                 state.children = d.children;
             } else {
-                // v1.1 compatibility: expand existing 5-child categories to 6.
                 state.children = state.children.map((children, parentIndex) => {
                     const next = Array.isArray(children) ? children.slice(0, CHILD_COUNT) : [];
                     while (next.length < CHILD_COUNT) next.push(d.children[parentIndex][next.length]);
@@ -108,7 +106,7 @@
 
     function esc(s) {
         return String(s ?? "").replace(/[&<>"']/g, c => ({
-            "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
         }[c]));
     }
 
@@ -157,7 +155,8 @@
 #js-code-stock-panel *{box-sizing:border-box}
 #js-code-stock-panel .jcs-container{display:flex;flex-direction:column;height:100%;padding:0 4px;min-height:0}
 #js-code-stock-panel .jcs-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-#js-code-stock-panel .jcs-title{font-size:18px;text-align:left;cursor:move;user-select:none}
+#js-code-stock-panel .jcs-title{font-size:18px;text-align:left;cursor:grab;user-select:none;flex:1}
+#js-code-stock-panel .jcs-title:active{cursor:grabbing}
 #js-code-stock-panel .jcs-tools{display:flex;gap:4px;align-items:center}
 #js-code-stock-panel button{background:#333;color:#fff;border:none;border-radius:2px;cursor:pointer}
 #js-code-stock-panel button:hover{background:#3b3b3b}
@@ -169,8 +168,8 @@
 #js-code-stock-panel .jcs-tab:hover{background:#35363a;color:#e8eaed;z-index:2}
 #js-code-stock-panel .jcs-tab.active{background:#35363a;color:#fff;z-index:3;box-shadow:-2px 0 0 0 #fff,2px 0 0 0 #fff,0 -2px 0 0 #fff}
 #js-code-stock-panel .jcs-child{margin-bottom:4px}
-#js-code-stock-panel .jcs-colors{display:flex;gap:4px;background:transparent;padding:0 0 3px;overflow:visible}
-#js-code-stock-panel .jcs-colors .jcs-tab{flex:none;width:24px;min-width:24px;height:16px;padding:0;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-colors{display:flex;gap:4px;background:transparent;padding:0 0 3px;overflow:visible;width:100%}
+#js-code-stock-panel .jcs-colors .jcs-tab{flex:1;min-width:0;height:18px;padding:0;box-shadow:none;transform:none;border-radius:2px}
 #js-code-stock-panel .jcs-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-input-section{margin-bottom:6px}
 #js-code-stock-panel .jcs-input-row{display:flex;gap:4px}
@@ -185,8 +184,8 @@
 #js-code-stock-panel .jcs-clear:hover{background:#ad1a1a}
 #js-code-stock-panel #jcs-toggle-input{width:100%;height:30px;background:#444;border:none;color:#fff;cursor:pointer;margin-top:3px;font-size:13px}
 #js-code-stock-panel .jcs-filter{padding:0 0 3px;border-bottom:1px solid #333}
-#js-code-stock-panel .jcs-filter-colors{display:flex;gap:4px;background:transparent;padding:0;overflow:visible}
-#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:none;width:auto;min-width:24px;height:16px;padding:0 6px;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-filter-colors{display:flex;gap:4px;background:transparent;padding:0;overflow:visible;width:100%}
+#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:1;min-width:0;height:18px;padding:0;box-shadow:none;transform:none;border-radius:2px;font-size:11px;display:flex;align-items:center;justify-content:center}
 #js-code-stock-panel .jcs-filter-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-search{height:30px;font-size:18px;margin-top:3px}
 #js-code-stock-panel .jcs-list{flex:1;overflow:auto;margin-top:4px;min-height:0;padding-right:2px}
@@ -338,14 +337,13 @@
         filter.className = "jcs-filter";
         const fc = document.createElement("div");
         fc.className = "jcs-tabs jcs-filter-colors";
+
+        // ALLボタン・各カラータグともに均等配置（インライン幅指定を排除）
         const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
-        all.style.flex = "none";
-        all.style.padding = "0 6px";
         fc.appendChild(all);
         state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
             const b = makeButton("", () => { state.filterColor = state.filterColor === i ? null : i; renderPanel(); }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
             b.style.background = c;
-            b.style.width = "24px"; b.style.minWidth = "24px"; b.style.height = "16px"; b.style.padding = "0";
             fc.appendChild(b);
         });
         searchEl = document.createElement("input");
@@ -381,7 +379,7 @@
             (state.filterColor === null || (item.color || 0) === state.filterColor) &&
             String(item.title).toLowerCase().includes(q)
         );
-        filtered.sort((a,b) => (a.order || 0) - (b.order || 0));
+        filtered.sort((a, b) => (a.order || 0) - (b.order || 0));
 
         filtered.forEach(item => {
             const row = document.createElement("div");
@@ -427,222 +425,182 @@
         }
     }
 
-  function extractVariableDefinitions(serializedRoot) {
-    const varsById = new Map();
-    traverseSerializedBlocks(serializedRoot, (b) => {
-      if (b.fields && b.fields.VAR) {
-        const raw = b.fields.VAR;
-        let id = null,
-          name = null,
-          type = "";
-        if (raw && typeof raw === "object") {
-          id = raw.id || null;
-          name = raw.name || null;
-          type = raw.type || "";
-        } else if (typeof raw === "string") {
-          // Some serialized forms store only the name
-          id = null;
-          name = raw;
-          type = "";
-        }
-        // also check extraState.isObjectVar if present
-        const isObjectVar = !!(b.extraState && b.extraState.isObjectVar);
-        if (name) {
-          const key = id || name + "::" + type;
-          if (!varsById.has(key)) {
-            varsById.set(key, { id: id, name: name, type: type, isObjectVar: isObjectVar });
-          }
-        }
-      }
-    });
-    return Array.from(varsById.values());
-  }
-
-  /* ---------------------------
-     Register/create variables in the workspace BEFORE block creation.
-     Attempts multiple varMap/workspace APIs and prefers creating variable
-     with the original id where possible.
-  ---------------------------- */
-  function registerVariablesBeforePaste(ws, varDefs) {
-    try {
-      const varMap = ws.getVariableMap ? ws.getVariableMap() : null;
-
-      for (const v of varDefs) {
-        try {
-          // Try find existing by id first
-          let existing = null;
-          if (varMap && typeof varMap.getVariable === "function") {
-            // some variants accept id or name; try both defensively
-            try {
-              existing = varMap.getVariable(v.id);
-            } catch (e) {
-              existing = null;
+    function extractVariableDefinitions(serializedRoot) {
+        const varsById = new Map();
+        traverseSerializedBlocks(serializedRoot, (b) => {
+            if (b.fields && b.fields.VAR) {
+                const raw = b.fields.VAR;
+                let id = null,
+                    name = null,
+                    type = "";
+                if (raw && typeof raw === "object") {
+                    id = raw.id || null;
+                    name = raw.name || null;
+                    type = raw.type || "";
+                } else if (typeof raw === "string") {
+                    id = null;
+                    name = raw;
+                    type = "";
+                }
+                const isObjectVar = !!(b.extraState && b.extraState.isObjectVar);
+                if (name) {
+                    const key = id || name + "::" + type;
+                    if (!varsById.has(key)) {
+                        varsById.set(key, { id: id, name: name, type: type, isObjectVar: isObjectVar });
+                    }
+                }
             }
-          }
-          // varMap.getVariableById?
-          if (!existing && varMap && typeof varMap.getVariableById === "function") {
-            try {
-              existing = varMap.getVariableById(v.id);
-            } catch (e) {
-              existing = null;
-            }
-          }
-          // try by name
-          if (!existing && varMap && typeof varMap.getVariableByName === "function") {
-            try {
-              existing = varMap.getVariableByName(v.name);
-            } catch (e) {
-              existing = null;
-            }
-          }
-          if (!existing && varMap && typeof varMap.getVariable === "function") {
-            // some builds use getVariable(name)
-            try {
-              existing = varMap.getVariable(v.name);
-            } catch (e) {
-              existing = null;
-            }
-          }
-
-          // If a variable with the exact id exists, ensure type matches (do not change)
-          if (existing) {
-            // If existing type differs and name differs, don't overwrite — preserved workspace variable wins.
-            // We only create if missing.
-            continue;
-          }
-
-          // Create variable using the best API available. Try to keep id when possible.
-          let created = null;
-          if (varMap && typeof varMap.createVariable === "function") {
-            try {
-              // createVariable(name, type, id) is supported by some Blockly versions
-              created = varMap.createVariable(v.name, v.type || "", v.id);
-            } catch (e) {
-              try {
-                created = varMap.createVariable(v.name, v.type || "", undefined);
-              } catch (e2) {
-                created = null;
-              }
-            }
-          }
-          if (!created && typeof ws.createVariable === "function") {
-            try {
-              created = ws.createVariable(v.name, v.type || "", v.id);
-            } catch (e) {
-              try {
-                created = ws.createVariable(v.name, v.type || "", undefined);
-              } catch (ee) {
-                created = null;
-              }
-            }
-          }
-
-          // As a last resort, try Blockly global API if present
-          if (!created && typeof Blockly !== "undefined" && typeof Blockly.Variables !== "undefined") {
-            try {
-              // Some builds provide Blockly.Variables.createVariable
-              if (typeof Blockly.Variables.createVariable === "function") {
-                created = Blockly.Variables.createVariable(ws, v.name, v.type || "", v.id);
-              }
-            } catch (e) {
-              created = null;
-            }
-          }
-        } catch (inner) {
-          // ignore per-variable creation errors
-          console.warn("[CopyPastePlugin] registerVariablesBeforePaste error for", v, inner);
-        }
-      }
-    } catch (err) {
-      console.warn("[CopyPastePlugin] registerVariablesBeforePaste failed:", err);
+        });
+        return Array.from(varsById.values());
     }
-  }
 
-  function ensureVariableExists(ws, name, type) {
-    try {
-      const varMap = ws.getVariableMap();
-      if (!varMap) return null;
-
-      let existing = null;
-      try {
-        existing = varMap.getVariable(name);
-      } catch (e) {
-        existing = null;
-      }
-      if (!existing && typeof varMap.getVariableByName === "function") {
+    function registerVariablesBeforePaste(ws, varDefs) {
         try {
-          existing = varMap.getVariableByName(name);
+            const varMap = ws.getVariableMap ? ws.getVariableMap() : null;
+
+            for (const v of varDefs) {
+                try {
+                    let existing = null;
+                    if (varMap && typeof varMap.getVariable === "function") {
+                        try { existing = varMap.getVariable(v.id); } catch (e) { existing = null; }
+                    }
+                    if (!existing && varMap && typeof varMap.getVariableById === "function") {
+                        try { existing = varMap.getVariableById(v.id); } catch (e) { existing = null; }
+                    }
+                    if (!existing && varMap && typeof varMap.getVariableByName === "function") {
+                        try { existing = varMap.getVariableByName(v.name); } catch (e) { existing = null; }
+                    }
+                    if (!existing && varMap && typeof varMap.getVariable === "function") {
+                        try { existing = varMap.getVariable(v.name); } catch (e) { existing = null; }
+                    }
+
+                    if (existing) continue;
+
+                    let created = null;
+                    if (varMap && typeof varMap.createVariable === "function") {
+                        try {
+                            created = varMap.createVariable(v.name, v.type || "", v.id);
+                        } catch (e) {
+                            try {
+                                created = varMap.createVariable(v.name, v.type || "", undefined);
+                            } catch (e2) {
+                                created = null;
+                            }
+                        }
+                    }
+                    if (!created && typeof ws.createVariable === "function") {
+                        try {
+                            created = ws.createVariable(v.name, v.type || "", v.id);
+                        } catch (e) {
+                            try {
+                                created = ws.createVariable(v.name, v.type || "", undefined);
+                            } catch (ee) {
+                                created = null;
+                            }
+                        }
+                    }
+
+                    if (!created && typeof Blockly !== "undefined" && typeof Blockly.Variables !== "undefined") {
+                        try {
+                            if (typeof Blockly.Variables.createVariable === "function") {
+                                created = Blockly.Variables.createVariable(ws, v.name, v.type || "", v.id);
+                            }
+                        } catch (e) {
+                            created = null;
+                        }
+                    }
+                } catch (inner) {
+                    console.warn("[CopyPastePlugin] registerVariablesBeforePaste error for", v, inner);
+                }
+            }
+        } catch (err) {
+            console.warn("[CopyPastePlugin] registerVariablesBeforePaste failed:", err);
+        }
+    }
+
+    function ensureVariableExists(ws, name, type) {
+        try {
+            const varMap = ws.getVariableMap();
+            if (!varMap) return null;
+
+            let existing = null;
+            try {
+                existing = varMap.getVariable(name);
+            } catch (e) {
+                existing = null;
+            }
+            if (!existing && typeof varMap.getVariableByName === "function") {
+                try {
+                    existing = varMap.getVariableByName(name);
+                } catch (e) {
+                    existing = null;
+                }
+            }
+
+            if (!existing) {
+                if (typeof varMap.createVariable === "function") {
+                    return varMap.createVariable(name, type || "", undefined);
+                }
+                if (typeof ws.createVariable === "function") {
+                    return ws.createVariable(name, type || "", undefined);
+                }
+            }
+            return existing;
         } catch (e) {
-          existing = null;
+            console.warn("[CopyPastePlugin] ensureVariableExists error:", e);
+            return null;
         }
-      }
-
-      if (!existing) {
-        if (typeof varMap.createVariable === "function") {
-          return varMap.createVariable(name, type || "", undefined);
-        }
-        if (typeof ws.createVariable === "function") {
-          return ws.createVariable(name, type || "", undefined);
-        }
-      }
-      return existing;
-    } catch (e) {
-      console.warn("[CopyPastePlugin] ensureVariableExists error:", e);
-      return null;
     }
-  }
 
-  function traverseSerializedBlocks(node, cb) {
-    if (!node) return;
-    cb(node);
-    if (node.inputs && typeof node.inputs === "object") {
-      for (const input of Object.values(node.inputs)) {
-        if (input && input.block) traverseSerializedBlocks(input.block, cb);
-        if (input && input.shadow) traverseSerializedBlocks(input.shadow, cb);
-      }
+    function traverseSerializedBlocks(node, cb) {
+        if (!node) return;
+        cb(node);
+        if (node.inputs && typeof node.inputs === "object") {
+            for (const input of Object.values(node.inputs)) {
+                if (input && input.block) traverseSerializedBlocks(input.block, cb);
+                if (input && input.shadow) traverseSerializedBlocks(input.shadow, cb);
+            }
+        }
+        if (node.next && node.next.block) traverseSerializedBlocks(node.next.block, cb);
     }
-    if (node.next && node.next.block) traverseSerializedBlocks(node.next.block, cb);
-  }
 
-  /* Fixed sanitizer: skip variableReferenceBlock and subroutineArgumentBlock */
-  function sanitizeForWorkspace(ws, root) {
-    traverseSerializedBlocks(root, (b) => {
-      if (b.type === "variableReferenceBlock") return;
-      if (b.type === "subroutineArgumentBlock") return;
+    function sanitizeForWorkspace(ws, root) {
+        traverseSerializedBlocks(root, (b) => {
+            if (b.type === "variableReferenceBlock") return;
+            if (b.type === "subroutineArgumentBlock") return;
 
-      if (b.fields) {
-        for (const [key, val] of Object.entries(b.fields)) {
-          const ku = key.toUpperCase();
-          if (ku === "VAR" || ku === "VARIABLE" || ku.startsWith("VAR")) {
-            let varName = val;
-            if (val && typeof val === "object" && val.name) varName = val.name;
-            if (typeof varName === "string" && varName.length > 0) {
-              ensureVariableExists(ws, varName, val?.type || "");
+            if (b.fields) {
+                for (const [key, val] of Object.entries(b.fields)) {
+                    const ku = key.toUpperCase();
+                    if (ku === "VAR" || ku === "VARIABLE" || ku.startsWith("VAR")) {
+                        let varName = val;
+                        if (val && typeof val === "object" && val.name) varName = val.name;
+                        if (typeof varName === "string" && varName.length > 0) {
+                            ensureVariableExists(ws, varName, val?.type || "");
+                        }
+                    }
+                }
             }
-          }
-        }
-      }
 
-      if (b.fields) {
-        for (const [key, val] of Object.entries(b.fields)) {
-          if (typeof val !== "string") continue;
-          try {
-            const temp = ws.newBlock(b.type);
-            const field = temp.getField(key);
-            if (field && typeof field.getOptions === "function") {
-              const opts = field.getOptions();
-              const values = opts.map((o) => o[1]);
-              if (!values.includes(val)) b.fields[key] = values[0] || "";
+            if (b.fields) {
+                for (const [key, val] of Object.entries(b.fields)) {
+                    if (typeof val !== "string") continue;
+                    try {
+                        const temp = ws.newBlock(b.type);
+                        const field = temp.getField(key);
+                        if (field && typeof field.getOptions === "function") {
+                            const opts = field.getOptions();
+                            const values = opts.map((o) => o[1]);
+                            if (!values.includes(val)) b.fields[key] = values[0] || "";
+                        }
+                        temp.dispose(false);
+                    } catch { }
+                }
             }
-            temp.dispose(false);
-          } catch {}
-        }
-      }
-    });
+        });
 
-    return root;
-  }
-
+        return root;
+    }
 
     function extractBlockForClipboard(block) {
         try {
@@ -655,7 +613,7 @@
                     const xml = Blockly.Xml.blockToDom(block, true);
                     return { _legacyXml: Blockly.Xml.domToText(xml) };
                 }
-            } catch (_) {}
+            } catch (_) { }
             return null;
         }
     }
@@ -685,59 +643,52 @@
         await copyText(JSON.stringify(data, null, 2));
     }
 
-function renameSubroutineIfNeeded(ws, data) {
-  try {
-    if (!data || data.type !== "subroutineBlock") return data;
+    function renameSubroutineIfNeeded(ws, data) {
+        try {
+            if (!data || data.type !== "subroutineBlock") return data;
 
-    const originalName =
-      data.extraState?.subroutineName ||
-      data.fields?.SUBROUTINE_NAME;
+            const originalName =
+                data.extraState?.subroutineName ||
+                data.fields?.SUBROUTINE_NAME;
 
-    if (!originalName) return data;
+            if (!originalName) return data;
 
-    // Collect existing names
-    const existingNames = new Set();
+            const existingNames = new Set();
 
-    const allBlocks = ws.getAllBlocks(false);
-    for (const b of allBlocks) {
-      if (b.type === "subroutineBlock") {
-        const name =
-          (b.extraState && b.extraState.subroutineName) ||
-          (b.getField && b.getField("SUBROUTINE_NAME")?.getValue());
-        if (name) existingNames.add(name);
-      }
+            const allBlocks = ws.getAllBlocks(false);
+            for (const b of allBlocks) {
+                if (b.type === "subroutineBlock") {
+                    const name =
+                        (b.extraState && b.extraState.subroutineName) ||
+                        (b.getField && b.getField("SUBROUTINE_NAME")?.getValue());
+                    if (name) existingNames.add(name);
+                }
+            }
+
+            if (!existingNames.has(originalName)) return data;
+
+            let i = 1;
+            let newName = originalName + i;
+            while (existingNames.has(newName)) {
+                i++;
+                newName = originalName + i;
+            }
+
+            if (data.extraState) data.extraState.subroutineName = newName;
+            if (data.fields) data.fields.SUBROUTINE_NAME = newName;
+
+            traverseSerializedBlocks(data, (b) => {
+                if (b.fields && b.fields.SUBROUTINE_NAME === originalName) {
+                    b.fields.SUBROUTINE_NAME = newName;
+                }
+            });
+
+            return data;
+        } catch (err) {
+            console.warn("[CopyPastePlugin] renameSubroutineIfNeeded failed:", err);
+            return data;
+        }
     }
-
-    if (!existingNames.has(originalName)) return data;
-
-    // Generate new unique name
-    let i = 1;
-    let newName = originalName + i;
-    while (existingNames.has(newName)) {
-      i++;
-      newName = originalName + i;
-    }
-
-    // Apply new name to the subroutine
-    if (data.extraState) data.extraState.subroutineName = newName;
-    if (data.fields) data.fields.SUBROUTINE_NAME = newName;
-
-    // Also rewrite ANY reference to the subroutine name inside inputs
-    traverseSerializedBlocks(data, (b) => {
-      if (b.fields && b.fields.SUBROUTINE_NAME === originalName) {
-        b.fields.SUBROUTINE_NAME = newName;
-      }
-        enablePanelDragging();
-    });
-
-    return data;
-  } catch (err) {
-    console.warn("[CopyPastePlugin] renameSubroutineIfNeeded failed:", err);
-    return data;
-  }
-}
-
-
 
     async function pasteSerializedStock(text) {
         const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
@@ -764,19 +715,19 @@ function renameSubroutineIfNeeded(ws, data) {
                 const ctm = canvas.getScreenCTM();
                 if (ctm && typeof ctm.inverse === "function") {
                     const p = pt.matrixTransform(ctm.inverse());
-                    mousePos = {x:p.x,y:p.y};
+                    mousePos = { x: p.x, y: p.y };
                 }
             }
-        } catch (_) {}
+        } catch (_) { }
         if (!mousePos) {
-            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) {}
+            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) { }
         }
         if (!mousePos) {
             const metrics = ws.getMetrics ? ws.getMetrics() : {};
-            mousePos = {x:(metrics.viewLeft||0)+(metrics.viewWidth||0)/2,y:(metrics.viewTop||0)+(metrics.viewHeight||0)/2};
+            mousePos = { x: (metrics.viewLeft || 0) + (metrics.viewWidth || 0) / 2, y: (metrics.viewTop || 0) + (metrics.viewHeight || 0) / 2 };
         }
         const dx = mousePos.x - originalX, dy = mousePos.y - originalY;
-        traverseSerializedBlocks(data, b => { b.x=(b.x||0)+dx; b.y=(b.y||0)+dy; });
+        traverseSerializedBlocks(data, b => { b.x = (b.x || 0) + dx; b.y = (b.y || 0) + dy; });
 
         if (_Blockly.serialization && _Blockly.serialization.blocks && typeof _Blockly.serialization.blocks.append === "function") {
             _Blockly.serialization.blocks.append(data, ws);
@@ -902,8 +853,8 @@ function renameSubroutineIfNeeded(ws, data) {
 
     function reorderGroup(parent, child) {
         state.items.filter(x => x.parent === parent && x.child === child)
-            .sort((a,b) => (a.order || 0) - (b.order || 0))
-            .forEach((x,i) => x.order = i);
+            .sort((a, b) => (a.order || 0) - (b.order || 0))
+            .forEach((x, i) => x.order = i);
     }
 
     function selectedItems() {
@@ -923,11 +874,11 @@ function renameSubroutineIfNeeded(ws, data) {
         };
         const text = JSON.stringify(data, null, 2);
         copyText(text).then(() => setStatus("Export JSON copied to clipboard"));
-        const blob = new Blob([text], {type:"application/json"});
+        const blob = new Blob([text], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g,"-") + ".json";
+        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
     }
@@ -980,8 +931,6 @@ function renameSubroutineIfNeeded(ws, data) {
         const e = lastContextMenuEvent || lastMouseEvent;
         if (!e) return;
 
-        // Show just to the right of the original right-click position.
-        // If there is not enough room, place it to the left instead.
         const gap = 12;
         const rect = panel.getBoundingClientRect();
         const w = rect.width || 400;
@@ -1001,17 +950,21 @@ function renameSubroutineIfNeeded(ws, data) {
         panel.style.right = "auto";
     }
 
+    // イベント委譲により、renderPanel が何度走っても確実にタイトル部でドラッグできるように修正
     function enablePanelDragging() {
-        if (!panel || panel.dataset.dragReady === "1") return;
-        const title = panel.querySelector(".jcs-title");
-        if (!title) return;
-        panel.dataset.dragReady = "1";
-        title.addEventListener("mousedown", e => {
+        if (!panel || panel._dragInitialized) return;
+        panel._dragInitialized = true;
+
+        panel.addEventListener("mousedown", e => {
             if (e.button !== 0) return;
+            const title = e.target.closest(".jcs-title");
+            if (!title) return; // タイトルバー以外のクリックは無視
+
             e.preventDefault();
             const r = panel.getBoundingClientRect();
             const startX = e.clientX, startY = e.clientY;
             const startLeft = r.left, startTop = r.top;
+
             const move = ev => {
                 const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
                 const maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
@@ -1019,10 +972,12 @@ function renameSubroutineIfNeeded(ws, data) {
                 panel.style.top = Math.max(8, Math.min(startTop + ev.clientY - startY, maxTop)) + "px";
                 panel.style.right = "auto";
             };
+
             const up = () => {
                 document.removeEventListener("mousemove", move);
                 document.removeEventListener("mouseup", up);
             };
+
             document.addEventListener("mousemove", move);
             document.addEventListener("mouseup", up);
         });
@@ -1057,11 +1012,6 @@ function renameSubroutineIfNeeded(ws, data) {
         if (menusRegistered) return;
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
-        // IMPORTANT: The Portal sample shows that plugin.registerItem() only
-        // adds the item to the plugin's item registry. A top-level Blockly
-        // context-menu entry must ALSO be registered with Blockly's registry.
-        // Do not create a menu here, otherwise Blockly displays a second
-        // submenu before running JS Code Stock.
         const workspaceItem = {
             id: "jsCodeStockWorkspace",
             displayText: "JS Code Stock",
@@ -1095,7 +1045,7 @@ function renameSubroutineIfNeeded(ws, data) {
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
             attachMouseTracking(ws);
-        } catch (_) {}
+        } catch (_) { }
     };
 
 })();
