@@ -594,30 +594,25 @@
                 // パネル外へ出た瞬間に発動
                 if (isOutside) {
                     isDragging = true;
-                    cleanup();
+                    cleanup(); // 自前のリスナーを解除して一度解放
 
                     const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
                     if (!ws) return;
 
-                    // 1. ブロックインスタンスを生成
+                    // 1. ブロックをワークスペースに生成して配置
                     const createdBlock = createBlockInstance(ws, item);
                     if (!createdBlock) return;
 
-                    // 2. ★ここが核心：カーソルがブロックの左上内側（確実に掴める位置）に乗るようオフセット補正
-                    // Xを-15px、Yを-12px手前に置くことで、カーソルの直下にブロックの肉が確実に重なります
                     const coords = getWorkspaceCoords(ws, moveEvent);
-                    const grabOffsetX = 15;
-                    const grabOffsetY = 12;
-
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                     if (typeof createdBlock.moveTo === "function") {
-                        createdBlock.moveTo(new Coordinate(coords.x - grabOffsetX, coords.y - grabOffsetY));
+                        createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
                     }
                     if (typeof createdBlock.render === "function") {
                         createdBlock.render();
                     }
 
-                    // 3. パネルの状態制御
+                    // 2. パネルの状態制御
                     if (isTempExpanded) {
                         isTempExpanded = false;
                         isCollapsed = true;
@@ -626,35 +621,66 @@
                         closePanel();
                     }
 
-                    // 4. BlocklyのGestureに掴ませて通常ドラッグ（隙間空け・プレビュー）を開始
-                    try {
-                        const gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
-                        if (gesture) {
-                            gesture.setStartBlock(createdBlock);
-                            gesture.handleBlockStart(moveEvent, createdBlock);
+                    // 3. ★ここが核心：描画完了を待って（80ms）、システムで確実に掴み直す！
+                    setTimeout(() => {
+                        if (!createdBlock || createdBlock.disposed) return;
+                        const svg = createdBlock.getSvgRoot && createdBlock.getSvgRoot();
+                        if (!svg) return;
 
-                            // 即座に隙間空け・挿入マーカーモードを起動
-                            if (typeof gesture.startDraggingBlock === "function") {
-                                gesture.startDraggingBlock();
-                            } else if (typeof gesture.startDraggingBlock_ === "function") {
-                                gesture.startDraggingBlock_();
+                        // 描画されたブロックの正確な画面座標を取得
+                        const blockRect = svg.getBoundingClientRect();
+                        const grabX = blockRect.left + 20;
+                        const grabY = blockRect.top + 15;
+
+                        const fakeEvent = {
+                            clientX: grabX,
+                            clientY: grabY,
+                            screenX: grabX,
+                            screenY: grabY,
+                            button: 0,
+                            buttons: 1,
+                            pointerId: 1,
+                            pointerType: "mouse",
+                            target: svg,
+                            type: "pointerdown",
+                            preventDefault: () => { },
+                            stopPropagation: () => { }
+                        };
+
+                        try {
+                            // 前回のクリック状態が残っていればキャンセルしてリセット
+                            if (ws.currentGesture_) {
+                                ws.currentGesture_.cancel();
                             }
-                        } else {
-                            const svg = createdBlock.getSvgRoot && createdBlock.getSvgRoot();
-                            if (svg) {
-                                svg.dispatchEvent(new MouseEvent("mousedown", {
-                                    bubbles: true,
-                                    cancelable: true,
-                                    view: window,
-                                    clientX: moveEvent.clientX,
-                                    clientY: moveEvent.clientY,
-                                    buttons: 1
-                                }));
+
+                            // BlocklyのGestureを開始してドラッグ状態へ
+                            const gesture = ws.getGesture ? ws.getGesture(fakeEvent) : null;
+                            if (gesture) {
+                                gesture.setStartBlock(createdBlock);
+                                gesture.handleBlockStart(fakeEvent, createdBlock);
+
+                                if (typeof gesture.startDraggingBlock === "function") {
+                                    gesture.startDraggingBlock();
+                                } else if (typeof gesture.startDraggingBlock_ === "function") {
+                                    gesture.startDraggingBlock_();
+                                }
                             }
+
+                            // ブロックSVGへもイベントを直接発火して確実に掴ませる
+                            svg.dispatchEvent(new PointerEvent("pointerdown", {
+                                bubbles: true,
+                                cancelable: true,
+                                view: window,
+                                clientX: grabX,
+                                clientY: grabY,
+                                button: 0,
+                                buttons: 1,
+                                pointerId: 1
+                            }));
+                        } catch (err) {
+                            console.warn("[JS Code Stock] Re-grab failed:", err);
                         }
-                    } catch (err) {
-                        console.warn("[JS Code Stock] Gesture start failed:", err);
-                    }
+                    }, 80);
                 }
             };
 
