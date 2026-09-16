@@ -476,14 +476,13 @@
             if (e.button !== 0) return;
             if (interactionMode === "blockEntry") return;
 
-            // ブラウザのテキストドラッグ（禁止マーク🚫）を抑止
             e.preventDefault();
 
             const startX = e.clientX, startY = e.clientY;
             let isDragging = false;
 
             const onMouseMove = (moveEvent) => {
-                if (isDragging) return; // 既にBlocklyに引き渡した後は何もしない
+                if (isDragging) return;
 
                 if (!panel) return;
                 const rect = panel.getBoundingClientRect();
@@ -494,7 +493,7 @@
                 // パネル外に出た瞬間に発動
                 if (isOutside || dist > 15) {
                     isDragging = true;
-                    cleanup(); // 自前のイベント追跡を終了
+                    cleanup();
 
                     const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
                     if (!ws) return;
@@ -503,26 +502,25 @@
                     const createdBlock = createBlockInstance(ws, item);
                     if (!createdBlock) return;
 
-                    // 2. CODESTOCKパネルを閉じる
+                    // 2. パネルを閉じる
                     closePanel();
 
-                    // 3. マウスの初期座標へ配置
+                    // 3. マウスの初期位置へ配置
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                     if (typeof createdBlock.moveTo === "function") {
                         createdBlock.moveTo(new Coordinate(coords.x, coords.y));
                     }
-                    if (typeof createdBlock.render === "function") {
-                        createdBlock.render();
-                    }
+                    if (typeof createdBlock.render === "function") createdBlock.render();
 
-                    // 4. ★ここが核心：BlocklyネイティブのGesture(ブロックドラッグ)に引き渡す
-                    // これにより、既存ブロックの間や中に入れた際に黄色い挿入マーカーが出てスナップ結合されます
+                    // 4. BlocklyのGesture（ドラッグ管理）を開始
+                    let gesture = null;
                     try {
-                        const gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
+                        gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
                         if (gesture) {
                             gesture.setStartBlock(createdBlock);
                             gesture.handleBlockStart(moveEvent, createdBlock);
+                            // 即座にドラッグ状態へ遷移させる
                             if (typeof gesture.handleMove === "function") {
                                 gesture.handleMove(moveEvent);
                             }
@@ -530,13 +528,32 @@
                     } catch (err) {
                         console.warn("[JS Code Stock] Gesture start failed:", err);
                     }
+
+                    // 5. ★ここが核心：マウスの移動と離した瞬間をBlocklyへ完全中継する
+                    // これによりブロック間やC型ブロック内に黄色い挿入マーカーが出て、離した瞬間にパチンと結合されます
+                    const onBlockDragMove = (ev) => {
+                        if (gesture && typeof gesture.handleMove === "function") {
+                            gesture.handleMove(ev);
+                        }
+                    };
+
+                    const onBlockDragUp = (ev) => {
+                        document.removeEventListener("mousemove", onBlockDragMove);
+                        document.removeEventListener("mouseup", onBlockDragUp);
+
+                        if (gesture && typeof gesture.handleUp === "function") {
+                            gesture.handleUp(ev); // ここで挿入・接続が確定実行される
+                        }
+                    };
+
+                    document.addEventListener("mousemove", onBlockDragMove);
+                    document.addEventListener("mouseup", onBlockDragUp);
                 }
             };
 
             const onMouseUp = () => {
                 cleanup();
                 if (!isDragging) {
-                    // パネル内での通常クリックはクリップボードコピー
                     handleItemClick(item, nameEl);
                 }
             };
