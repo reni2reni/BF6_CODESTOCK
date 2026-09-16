@@ -2,8 +2,8 @@
 (function () {
     "use strict";
 
-    const plugin = BF2042Portal.Plugins.getPlugin("jsCodeStock");
-    const STORAGE_KEY = "BF2042Portal_JSCodeStock_v1";
+    const plugin = BF2042Portal.Plugins.getPlugin("CodeStock");
+    const STORAGE_KEY = "BF2042Portal_CodeStock_v1";
     // Category counts are fixed: 4 parent categories, 6 child categories each.
     const PARENT_COUNT = 4;
     const CHILD_COUNT = 6;
