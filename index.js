@@ -67,7 +67,7 @@
             const saved = JSON.parse(raw);
             const d = cloneDefault();
             state = Object.assign(d, saved);
-            
+
             // 初期のタブ選択は常に 親0、子0 にリセット
             state.filterParent = 0;
             state.filterChild = Array(PARENT_COUNT).fill(0);
@@ -106,7 +106,7 @@
 
     function esc(s) {
         return String(s ?? "").replace(/[&<>"']/g, c => ({
-            "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
         }[c]));
     }
 
@@ -337,7 +337,7 @@
         filter.className = "jcs-filter";
         const fc = document.createElement("div");
         fc.className = "jcs-tabs jcs-filter-colors";
-        
+
         // ALLボタン・各カラータグともに均等配置（インライン幅指定を排除）
         const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
         fc.appendChild(all);
@@ -379,7 +379,7 @@
             (state.filterColor === null || (item.color || 0) === state.filterColor) &&
             String(item.title).toLowerCase().includes(q)
         );
-        filtered.sort((a,b) => (a.order || 0) - (b.order || 0));
+        filtered.sort((a, b) => (a.order || 0) - (b.order || 0));
 
         filtered.forEach(item => {
             const row = document.createElement("div");
@@ -594,7 +594,7 @@
                             if (!values.includes(val)) b.fields[key] = values[0] || "";
                         }
                         temp.dispose(false);
-                    } catch {}
+                    } catch { }
                 }
             }
         });
@@ -613,7 +613,7 @@
                     const xml = Blockly.Xml.blockToDom(block, true);
                     return { _legacyXml: Blockly.Xml.domToText(xml) };
                 }
-            } catch (_) {}
+            } catch (_) { }
             return null;
         }
     }
@@ -715,19 +715,19 @@
                 const ctm = canvas.getScreenCTM();
                 if (ctm && typeof ctm.inverse === "function") {
                     const p = pt.matrixTransform(ctm.inverse());
-                    mousePos = {x:p.x,y:p.y};
+                    mousePos = { x: p.x, y: p.y };
                 }
             }
-        } catch (_) {}
+        } catch (_) { }
         if (!mousePos) {
-            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) {}
+            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) { }
         }
         if (!mousePos) {
             const metrics = ws.getMetrics ? ws.getMetrics() : {};
-            mousePos = {x:(metrics.viewLeft||0)+(metrics.viewWidth||0)/2,y:(metrics.viewTop||0)+(metrics.viewHeight||0)/2};
+            mousePos = { x: (metrics.viewLeft || 0) + (metrics.viewWidth || 0) / 2, y: (metrics.viewTop || 0) + (metrics.viewHeight || 0) / 2 };
         }
         const dx = mousePos.x - originalX, dy = mousePos.y - originalY;
-        traverseSerializedBlocks(data, b => { b.x=(b.x||0)+dx; b.y=(b.y||0)+dy; });
+        traverseSerializedBlocks(data, b => { b.x = (b.x || 0) + dx; b.y = (b.y || 0) + dy; });
 
         if (_Blockly.serialization && _Blockly.serialization.blocks && typeof _Blockly.serialization.blocks.append === "function") {
             _Blockly.serialization.blocks.append(data, ws);
@@ -759,7 +759,7 @@
             const data = extractBlockForClipboard(block);
             if (!data) throw new Error("Unable to serialize block");
             pendingBlockData = data;
-            copyText(JSON.stringify(data, null, 2)).catch(() => {});
+            copyText(JSON.stringify(data, null, 2)).catch(() => { });
             interactionMode = "blockEntry";
             editingIdValue = null;
             inputHidden = false;
@@ -853,8 +853,8 @@
 
     function reorderGroup(parent, child) {
         state.items.filter(x => x.parent === parent && x.child === child)
-            .sort((a,b) => (a.order || 0) - (b.order || 0))
-            .forEach((x,i) => x.order = i);
+            .sort((a, b) => (a.order || 0) - (b.order || 0))
+            .forEach((x, i) => x.order = i);
     }
 
     function selectedItems() {
@@ -874,11 +874,11 @@
         };
         const text = JSON.stringify(data, null, 2);
         copyText(text).then(() => setStatus("Export JSON copied to clipboard"));
-        const blob = new Blob([text], {type:"application/json"});
+        const blob = new Blob([text], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g,"-") + ".json";
+        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
     }
@@ -1045,7 +1045,7 @@
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
             attachMouseTracking(ws);
-        } catch (_) {}
+        } catch (_) { }
     };
 
 })();
