@@ -1037,7 +1037,10 @@ function renameSubroutineIfNeeded(ws, data) {
         pendingBlockData = null;
     }
 
+    let menusRegistered = false;
+
     function registerMenus() {
+        if (menusRegistered) return;
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
         // IMPORTANT: The Portal sample shows that plugin.registerItem() only
@@ -1069,15 +1072,16 @@ function renameSubroutineIfNeeded(ws, data) {
         };
         plugin.registerItem(blockItem);
         _Blockly.ContextMenuRegistry.registry.register(blockItem);
+        menusRegistered = true;
     }
 
     plugin.initializeWorkspace = function () {
         loadState();
+        try { registerMenus(); } catch (e) { BF2042Portal.Shared.logError("JS Code Stock menu registration", String(e)); }
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
             attachMouseTracking(ws);
         } catch (_) {}
     };
 
-    registerMenus();
 })();
