@@ -30,18 +30,21 @@
         filterColor: null,
         currentColor: 0
     };
-    let editingId = null;
+    let editingIdValue = null;
     let inputHidden = false;
     let selectedIds = new Set();
+    let lastSelected = null;
+    let internalClipboard = [];
+    let clipboardMode = null; // "copy" | "cut"
+    let cutIds = new Set();
+
     let panel = null;
     let listEl = null;
     let searchEl = null;
     let titleEl = null;
     let bodyEl = null;
     let statusEl = null;
-    // Interaction modes:
-    // workspacePaste = blank-area click -> choose stock -> paste into workspace
-    // blockEntry = block click -> copy serialized block -> new-entry form
+
     let interactionMode = "normal";
     let pendingBlockData = null;
     let lastMouseEvent = null;
@@ -68,7 +71,6 @@
             const d = cloneDefault();
             state = Object.assign(d, saved);
 
-            // 初期のタブ選択は常に 親0、子0 にリセット
             state.filterParent = 0;
             state.filterChild = Array(PARENT_COUNT).fill(0);
 
@@ -104,12 +106,6 @@
         return "item-" + Date.now() + "-" + Math.random().toString(16).slice(2);
     }
 
-    function esc(s) {
-        return String(s ?? "").replace(/[&<>"']/g, c => ({
-            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-        }[c]));
-    }
-
     function setStatus(text) {
         if (statusEl) statusEl.textContent = text;
     }
@@ -132,16 +128,6 @@
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
             return navigator.clipboard.writeText(text);
-        }
-        return Promise.reject(new Error("Clipboard API unavailable"));
-    }
-
-    function pasteText() {
-        if (BF2042Portal.Shared && BF2042Portal.Shared.pasteTextFromClipboard) {
-            return Promise.resolve(BF2042Portal.Shared.pasteTextFromClipboard());
-        }
-        if (navigator.clipboard && navigator.clipboard.readText) {
-            return navigator.clipboard.readText();
         }
         return Promise.reject(new Error("Clipboard API unavailable"));
     }
@@ -179,7 +165,10 @@
 #js-code-stock-panel .jcs-input-wrapper input{height:30px;font-size:18px}
 #js-code-stock-panel .jcs-input-wrapper textarea{height:80px;font-size:16px;resize:none;font-family:sans-serif}
 #js-code-stock-panel .jcs-input-right{display:flex;flex-direction:row;gap:4px;justify-content:flex-start;width:50%}
-#js-code-stock-panel .jcs-add,#js-code-stock-panel .jcs-cancel{width:76px;min-width:76px;height:28px}
+#js-code-stock-panel .jcs-add{width:76px;min-width:76px;height:28px;background:#2259a8}
+#js-code-stock-panel .jcs-add:hover{background:#6b86ff}
+#js-code-stock-panel .jcs-cancel{width:76px;min-width:76px;height:28px;background:#482020}
+#js-code-stock-panel .jcs-cancel:hover{background:#f36758}
 #js-code-stock-panel .jcs-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);cursor:pointer;background:#555;color:#fff;border:none;border-radius:3px;width:20px;height:20px;font-size:14px;line-height:18px;z-index:10}
 #js-code-stock-panel .jcs-clear:hover{background:#ad1a1a}
 #js-code-stock-panel #jcs-toggle-input{width:100%;height:30px;background:#444;border:none;color:#fff;cursor:pointer;margin-top:3px;font-size:13px}
@@ -189,19 +178,30 @@
 #js-code-stock-panel .jcs-filter-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-search{height:30px;font-size:18px;margin-top:3px}
 #js-code-stock-panel .jcs-list{flex:1;overflow:auto;margin-top:4px;min-height:0;padding-right:2px}
-#js-code-stock-panel .jcs-item{display:flex;background:#262626;padding:4px;margin-bottom:2px;cursor:pointer;font-size:16px;justify-content:space-between;align-items:center;border:1px solid transparent}
+#js-code-stock-panel .jcs-list::-webkit-scrollbar{width:10px}
+#js-code-stock-panel .jcs-list::-webkit-scrollbar-track{background:#1e1e1e}
+#js-code-stock-panel .jcs-list::-webkit-scrollbar-thumb{background:#444;border-radius:6px}
+#js-code-stock-panel .jcs-list::-webkit-scrollbar-thumb:hover{background:#666}
+
+/* アイテム項目 */
+#js-code-stock-panel .jcs-item{display:flex;background:#262626;padding:4px;margin-bottom:2px;cursor:pointer;font-size:16px;justify-content:space-between;align-items:center;border:1px solid transparent;position:relative}
 #js-code-stock-panel .jcs-item:hover{background:#333}
 #js-code-stock-panel .jcs-item.selected{background:#2a2f3a;border-left:3px solid #4da3ff}
-#js-code-stock-panel .jcs-drag{background:transparent!important;font-size:18px;padding:2px 4px;cursor:pointer}
-#js-code-stock-panel .jcs-name{flex:1;margin-left:6px;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 4px;border-left:6px solid #666}
+#js-code-stock-panel .jcs-item.dragging{opacity:.5}
+#js-code-stock-panel .jcs-item.dragTarget{border-top:2px solid #4da3ff}
+#js-code-stock-panel .jcs-drag{width:26px;min-width:26px;height:22px;cursor:grab;user-select:none;border:1px solid #555;background:#2a2a2a;border-radius:4px;font-size:14px;padding:0;display:flex;align-items:center;justify-content:center;color:#aaa}
+#js-code-stock-panel .jcs-drag.active{background:#4a7bd4;color:#fff}
+#js-code-stock-panel .jcs-name{flex:1;margin-left:6px;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 4px;border-left:6px solid #666;display:flex;align-items:center}
 #js-code-stock-panel .jcs-name:active{background:#555;transform:scale(.9)}
-#js-code-stock-panel .jcs-actions{display:flex;gap:3px}
-#js-code-stock-panel .jcs-actions button{font-size:12px;padding:3px 5px}
-#js-code-stock-panel .jcs-actions button:hover{background:#0984e3}
+#js-code-stock-panel .jcs-actions{display:flex;gap:6px;opacity:0;transition:0.1s}
+#js-code-stock-panel .jcs-item:hover .jcs-actions{opacity:1}
+#js-code-stock-panel .jcs-actions button{font-size:13px;padding:2px 6px;height:22px;line-height:18px;border-radius:3px}
+#js-code-stock-panel .jcs-btn-edit:hover{background:#3571b3}
+#js-code-stock-panel .jcs-btn-del:hover{background:#e74c3c}
+
 #js-code-stock-panel .jcs-foot{padding-top:4px;border-top:1px solid #333;display:flex;justify-content:space-between;align-items:center}
 #js-code-stock-panel .jcs-status{color:#aaa;font-size:11px}
 #js-code-stock-panel .jcs-foot-tools{display:flex;gap:4px}
-#js-code-stock-panel .jcs-small{font-size:11px;padding:4px 6px}
 #js-code-stock-panel .jcs-hidden{display:none!important}
 #js-code-stock-panel input:focus,#js-code-stock-panel textarea:focus{outline:1px solid #4a7bd4}
 `;
@@ -214,6 +214,204 @@
         if (cls) b.className = cls;
         b.onclick = fn;
         return b;
+    }
+
+    function showPrompt(x, y, text, value, yes) {
+        const old = document.getElementById("uiPrompt");
+        if (old) old.remove();
+        const box = document.createElement("div");
+        box.id = "uiPrompt";
+        box.style.position = "fixed";
+        box.style.left = Math.min(x, window.innerWidth - 200) + "px";
+        box.style.top = Math.min(y, window.innerHeight - 120) + "px";
+        box.style.background = "#1e1e1e";
+        box.style.border = "1px solid #444";
+        box.style.borderRadius = "6px";
+        box.style.padding = "10px";
+        box.style.zIndex = 2147483647;
+        box.style.color = "#ddd";
+        box.style.fontSize = "12px";
+        box.style.boxShadow = "0 4px 14px rgba(0,0,0,0.6)";
+
+        const t = document.createElement("div");
+        t.textContent = text;
+        t.style.marginBottom = "6px";
+
+        const input = document.createElement("input");
+        input.value = value;
+        input.style.width = "160px";
+        input.style.background = "#2a2a2a";
+        input.style.border = "1px solid #555";
+        input.style.color = "#ddd";
+        input.style.padding = "4px";
+        input.style.borderRadius = "4px";
+        input.style.marginBottom = "8px";
+
+        const ok = makeButton("OK", () => { yes(input.value); box.remove(); });
+        const cancel = makeButton("Cancel", () => box.remove());
+        [ok, cancel].forEach(b => {
+            b.style.background = "#2d2d2d";
+            b.style.border = "1px solid #555";
+            b.style.color = "#ddd";
+            b.style.padding = "4px 12px";
+            b.style.marginRight = "6px";
+            b.style.borderRadius = "4px";
+            b.style.cursor = "pointer";
+        });
+
+        box.append(t, input, document.createElement("br"), ok, cancel);
+        document.body.appendChild(box);
+        input.focus();
+    }
+
+    function showConfirm(x, y, text, yes) {
+        const old = document.getElementById("uiConfirm");
+        if (old) old.remove();
+        const box = document.createElement("div");
+        box.id = "uiConfirm";
+        box.style.position = "fixed";
+        box.style.left = Math.min(x, window.innerWidth - 180) + "px";
+        box.style.top = Math.min(y, window.innerHeight - 100) + "px";
+        box.style.background = "#1e1e1e";
+        box.style.border = "1px solid #444";
+        box.style.borderRadius = "6px";
+        box.style.padding = "10px";
+        box.style.zIndex = 2147483647;
+        box.style.color = "#ddd";
+        box.style.fontSize = "12px";
+        box.style.boxShadow = "0 4px 14px rgba(0,0,0,0.6)";
+
+        const t = document.createElement("div");
+        t.textContent = text;
+        t.style.marginBottom = "10px";
+
+        const ok = makeButton("OK", () => { yes(); box.remove(); });
+        const cancel = makeButton("Cancel", () => box.remove());
+        [ok, cancel].forEach(b => {
+            b.style.background = "#2d2d2d";
+            b.style.border = "1px solid #555";
+            b.style.color = "#ddd";
+            b.style.padding = "4px 12px";
+            b.style.marginRight = "6px";
+            b.style.borderRadius = "4px";
+            b.style.cursor = "pointer";
+        });
+
+        box.append(t, ok, cancel);
+        document.body.appendChild(box);
+    }
+
+    function showMenu(e, targetItem) {
+        const old = document.getElementById("popupMenu");
+        if (old) old.remove();
+
+        const menu = document.createElement("div");
+        menu.id = "popupMenu";
+        menu.style.position = "fixed";
+        let left = e.clientX, top = e.clientY;
+        const menuWidth = 140, menuHeight = 130;
+        if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth - 5;
+        if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight - 5;
+
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+        menu.style.background = "#2a2a2a";
+        menu.style.border = "1px solid #555";
+        menu.style.borderRadius = "4px";
+        menu.style.boxShadow = "0 4px 14px rgba(0,0,0,0.7)";
+        menu.style.zIndex = 2147483647;
+        menu.style.fontSize = "13px";
+
+        function addOption(name, fn) {
+            const b = document.createElement("div");
+            b.textContent = name;
+            b.style.cursor = "pointer";
+            b.style.padding = "6px 20px";
+            b.onmouseenter = () => b.style.background = "#3a3a3a";
+            b.onmouseleave = () => b.style.background = "";
+            b.onclick = () => {
+                fn();
+                renderList();
+                menu.remove();
+            };
+            menu.appendChild(b);
+        }
+
+        addOption("Copy", () => {
+            internalClipboard = state.items
+                .filter(i => selectedIds.has(String(i.id)))
+                .map(i => ({ ...i }));
+            clipboardMode = "copy";
+            cutIds.clear();
+            setStatus("Copied " + internalClipboard.length + " items to stock clipboard");
+        });
+
+        addOption("Cut", () => {
+            internalClipboard = state.items.filter(i => selectedIds.has(String(i.id)));
+            clipboardMode = "cut";
+            cutIds = new Set(internalClipboard.map(i => String(i.id)));
+            setStatus("Cut " + internalClipboard.length + " items");
+        });
+
+        addOption("Paste", () => {
+            pasteItems(targetItem);
+        });
+
+        document.body.appendChild(menu);
+        setTimeout(() => {
+            document.addEventListener("click", () => menu && menu.remove(), { once: true });
+        }, 10);
+    }
+
+    function pasteItems(target) {
+        if (internalClipboard.length === 0) return;
+        let group = state.items.filter(i =>
+            i.parent === state.filterParent &&
+            i.child === state.filterChild[state.filterParent]
+        );
+        group.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        let index = group.length;
+        if (target) {
+            index = group.findIndex(i => String(i.id) === String(target.id));
+            if (index === -1) index = group.length;
+        }
+
+        let insert = [];
+        if (clipboardMode === "copy") {
+            insert = internalClipboard.map(i => ({
+                id: uid(),
+                title: i.title,
+                body: i.body,
+                parent: state.filterParent,
+                child: state.filterChild[state.filterParent],
+                order: 0,
+                color: i.color
+            }));
+            state.items.push(...insert);
+        } else {
+            insert = internalClipboard;
+            insert.forEach(i => {
+                i.parent = state.filterParent;
+                i.child = state.filterChild[state.filterParent];
+            });
+        }
+
+        let remain = group.filter(i => !insert.includes(i));
+        remain.splice(index, 0, ...insert);
+        for (let i = 0; i < remain.length; i++) {
+            let item = state.items.find(x => x.id === remain[i].id);
+            if (item) item.order = i;
+        }
+
+        if (clipboardMode === "cut") {
+            internalClipboard = [];
+            selectedIds.clear();
+            cutIds.clear();
+            clipboardMode = null;
+        }
+        saveState();
+        renderList();
     }
 
     function renderPanel() {
@@ -243,8 +441,9 @@
             const b = makeButton(name, () => { state.filterParent = i; renderPanel(); }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
-                const name2 = prompt("Folder name", state.parents[i]);
-                if (name2 && name2.trim()) { state.parents[i] = name2.trim(); saveState(); renderPanel(); }
+                showPrompt(e.clientX, e.clientY, "Folder name", state.parents[i], (name2) => {
+                    if (name2 && name2.trim()) { state.parents[i] = name2.trim(); saveState(); renderPanel(); }
+                });
             };
             parentTabs.appendChild(b);
         });
@@ -255,8 +454,9 @@
             const b = makeButton(name, () => { state.filterChild[state.filterParent] = i; renderPanel(); }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
-                const name2 = prompt("SubFolder name", state.children[state.filterParent][i]);
-                if (name2 && name2.trim()) { state.children[state.filterParent][i] = name2.trim(); saveState(); renderPanel(); }
+                showPrompt(e.clientX, e.clientY, "SubFolder name", state.children[state.filterParent][i], (name2) => {
+                    if (name2 && name2.trim()) { state.children[state.filterParent][i] = name2.trim(); saveState(); renderPanel(); }
+                });
             };
             childTabs.appendChild(b);
         });
@@ -295,6 +495,14 @@
         bodyWrap.className = "jcs-input-wrapper";
         bodyEl = document.createElement("textarea");
         bodyEl.placeholder = "📝Code body";
+        bodyEl.addEventListener("paste", (e) => {
+            const clipboardData = (e.clipboardData || window.clipboardData).getData('text');
+            if (titleEl.value.trim() !== "") return;
+            try {
+                const data = JSON.parse(clipboardData);
+                if (data.type) titleEl.value = data.type;
+            } catch (_) { }
+        });
         const clearBody = makeButton("✕", () => { bodyEl.value = ""; bodyEl.focus(); }, "jcs-clear");
         bodyWrap.append(bodyEl, clearBody);
 
@@ -338,7 +546,6 @@
         const fc = document.createElement("div");
         fc.className = "jcs-tabs jcs-filter-colors";
 
-        // ALLボタン・各カラータグともに均等配置（インライン幅指定を排除）
         const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
         fc.appendChild(all);
         state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
@@ -361,13 +568,13 @@
         statusEl.className = "jcs-status";
         statusEl.textContent = "Ready";
         foot.appendChild(statusEl);
+
         container.append(head, parentTabs, childTabs, colorTabs, inputSection, filter, listEl, foot);
         panel.appendChild(container);
         renderList();
     }
 
     function hasEditingId() { return !!editingIdValue; }
-    let editingIdValue = null;
 
     function renderList() {
         if (!listEl) return;
@@ -382,18 +589,118 @@
         filtered.sort((a, b) => (a.order || 0) - (b.order || 0));
 
         filtered.forEach(item => {
+            const id = String(item.id);
             const row = document.createElement("div");
-            row.className = "jcs-item" + (selectedIds.has(String(item.id)) ? " selected" : "");
-            const drag = makeButton("≡", () => {
-                if (selectedIds.has(String(item.id))) selectedIds.delete(String(item.id));
-                else { selectedIds.clear(); selectedIds.add(String(item.id)); }
+            row.className = "jcs-item" + (selectedIds.has(id) ? " selected" : "");
+            row.dataset.id = id;
+
+            if (cutIds.has(id)) {
+                row.style.opacity = "0.4";
+                row.style.border = "1px dashed #888";
+            }
+
+            // Drag handle button
+            const drag = document.createElement("button");
+            drag.className = "jcs-drag" + (selectedIds.has(id) ? " active" : "");
+            drag.textContent = "≡";
+            drag.draggable = true;
+
+            // Right click on handle: context menu
+            drag.oncontextmenu = (e) => {
+                e.preventDefault();
+                if (!selectedIds.has(id)) {
+                    selectedIds.clear();
+                    selectedIds.add(id);
+                    lastSelected = id;
+                    renderList();
+                }
+                showMenu(e, item);
+            };
+
+            // Click on handle: Multi / Range select
+            drag.onclick = (e) => {
+                e.stopPropagation();
+                let group = filtered.map(i => String(i.id));
+                if (e.shiftKey && lastSelected) {
+                    let a = group.indexOf(lastSelected);
+                    let b = group.indexOf(id);
+                    selectedIds.clear();
+                    let start = Math.min(a, b), end = Math.max(a, b);
+                    for (let i = start; i <= end; i++) selectedIds.add(group[i]);
+                } else if (e.ctrlKey) {
+                    if (selectedIds.has(id)) selectedIds.delete(id);
+                    else { selectedIds.add(id); lastSelected = id; }
+                } else {
+                    if (selectedIds.has(id)) {
+                        selectedIds.delete(id);
+                        lastSelected = null;
+                    } else {
+                        selectedIds.clear();
+                        selectedIds.add(id);
+                        lastSelected = id;
+                    }
+                }
                 renderList();
-            }, "jcs-drag");
+            };
+
+            // Drag & Drop reorder
+            drag.ondragstart = () => {
+                if (!selectedIds.has(id)) {
+                    selectedIds.clear();
+                    selectedIds.add(id);
+                }
+                document.querySelectorAll(".jcs-item").forEach(el => {
+                    if (selectedIds.has(el.dataset.id)) el.classList.add("dragging");
+                });
+            };
+
+            drag.ondragend = () => {
+                document.querySelectorAll(".jcs-item").forEach(el => {
+                    el.classList.remove("dragging", "dragTarget");
+                });
+            };
+
+            row.ondragover = (e) => {
+                e.preventDefault();
+                row.classList.add("dragTarget");
+            };
+            row.ondragleave = () => {
+                row.classList.remove("dragTarget");
+            };
+            row.ondrop = (e) => {
+                e.preventDefault();
+                document.querySelectorAll(".jcs-item").forEach(el => el.classList.remove("dragTarget"));
+                let group = state.items.filter(i =>
+                    i.parent === state.filterParent &&
+                    i.child === state.filterChild[state.filterParent]
+                );
+                group.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+                let moving = group.filter(i => selectedIds.has(String(i.id)));
+                if (moving.length === 0 || selectedIds.has(id)) return;
+
+                let targetIndex = group.findIndex(i => String(i.id) === id);
+                let targetItem = group[targetIndex];
+                let removedBefore = moving.filter(i => (i.order || 0) < (targetItem.order || 0)).length;
+                targetIndex -= removedBefore;
+
+                let remain = group.filter(i => !selectedIds.has(String(i.id)));
+                remain.splice(targetIndex, 0, ...moving);
+                for (let i = 0; i < remain.length; i++) remain[i].order = i;
+
+                selectedIds.clear();
+                lastSelected = null;
+                saveState();
+                renderList();
+            };
+
+            // Name display & click copy
             const name = document.createElement("div");
             name.className = "jcs-name";
             name.style.borderLeftColor = state.palette[item.color || 0];
             name.textContent = item.title;
-            name.title = interactionMode === "workspacePaste" ? "Click to paste this code into the workspace" : "Click to copy code";
+            name.title = interactionMode === "workspacePaste" ? "Click to paste into workspace" : "Click to copy code";
+
             name.onclick = async () => {
                 if (interactionMode === "workspacePaste") {
                     await pasteSerializedStock(item.body);
@@ -401,19 +708,82 @@
                     interactionMode = "normal";
                     pendingBlockData = null;
                 } else {
-                    copyText(item.body).then(() => setStatus("COPY OK!")).catch(e => setStatus(String(e)));
+                    copyText(item.body).then(() => {
+                        const msg = document.createElement("span");
+                        msg.textContent = " COPY OK!";
+                        msg.style.color = "#4a7bd4";
+                        msg.style.fontSize = "13px";
+                        msg.style.fontWeight = "bold";
+                        msg.style.transition = "opacity 0.5s";
+                        name.appendChild(msg);
+                        setTimeout(() => {
+                            msg.style.opacity = "0";
+                            setTimeout(() => msg.remove(), 500);
+                        }, 500);
+                    }).catch(e => setStatus(String(e)));
                 }
             };
-            if (interactionMode !== "workspacePaste") name.ondblclick = () => editItem(item);
+
+            // Action buttons
             const actions = document.createElement("div");
             actions.className = "jcs-actions";
             actions.append(
-                makeButton("EDIT", () => editItem(item), "jcs-small"),
-                makeButton("×", () => deleteItem(item), "jcs-small")
+                makeButton("EDIT", (e) => { e.stopPropagation(); editItem(item); }, "jcs-btn-edit"),
+                makeButton("✕", (e) => {
+                    e.stopPropagation();
+                    if (!selectedIds.has(String(item.id))) {
+                        selectedIds.clear();
+                        selectedIds.add(String(item.id));
+                    }
+                    showConfirm(e.clientX, e.clientY, "delete it?", () => {
+                        state.items = state.items.filter(i => !selectedIds.has(String(i.id)));
+                        selectedIds.clear();
+                        lastSelected = null;
+                        reorderGroup(item.parent, item.child);
+                        saveState();
+                        renderList();
+                    });
+                }, "jcs-btn-del")
             );
+
             row.append(drag, name, actions);
             listEl.appendChild(row);
         });
+
+        // Bottom drop & paste zone
+        let endDrop = document.createElement("div");
+        endDrop.style.height = "16px";
+        endDrop.style.marginTop = "2px";
+        endDrop.oncontextmenu = (e) => {
+            e.preventDefault();
+            showMenu(e, null);
+        };
+        endDrop.ondragover = (e) => {
+            e.preventDefault();
+            endDrop.style.borderTop = "2px solid #4a7bd4";
+        };
+        endDrop.ondragleave = () => {
+            endDrop.style.borderTop = "none";
+        };
+        endDrop.ondrop = (e) => {
+            e.preventDefault();
+            endDrop.style.borderTop = "none";
+            let group = state.items.filter(i =>
+                i.parent === state.filterParent &&
+                i.child === state.filterChild[state.filterParent]
+            );
+            group.sort((a, b) => (a.order || 0) - (b.order || 0));
+            let moving = group.filter(i => selectedIds.has(String(i.id)));
+            let remain = group.filter(i => !selectedIds.has(String(i.id)));
+            remain.push(...moving);
+            for (let i = 0; i < remain.length; i++) remain[i].order = i;
+
+            selectedIds.clear();
+            lastSelected = null;
+            saveState();
+            renderList();
+        };
+        listEl.appendChild(endDrop);
 
         if (!filtered.length) {
             const empty = document.createElement("div");
@@ -430,9 +800,7 @@
         traverseSerializedBlocks(serializedRoot, (b) => {
             if (b.fields && b.fields.VAR) {
                 const raw = b.fields.VAR;
-                let id = null,
-                    name = null,
-                    type = "";
+                let id = null, name = null, type = "";
                 if (raw && typeof raw === "object") {
                     id = raw.id || null;
                     name = raw.name || null;
@@ -446,7 +814,7 @@
                 if (name) {
                     const key = id || name + "::" + type;
                     if (!varsById.has(key)) {
-                        varsById.set(key, { id: id, name: name, type: type, isObjectVar: isObjectVar });
+                        varsById.set(key, { id, name, type, isObjectVar });
                     }
                 }
             }
@@ -457,56 +825,33 @@
     function registerVariablesBeforePaste(ws, varDefs) {
         try {
             const varMap = ws.getVariableMap ? ws.getVariableMap() : null;
-
             for (const v of varDefs) {
                 try {
                     let existing = null;
                     if (varMap && typeof varMap.getVariable === "function") {
-                        try { existing = varMap.getVariable(v.id); } catch (e) { existing = null; }
+                        try { existing = varMap.getVariable(v.id); } catch (_) { existing = null; }
                     }
                     if (!existing && varMap && typeof varMap.getVariableById === "function") {
-                        try { existing = varMap.getVariableById(v.id); } catch (e) { existing = null; }
+                        try { existing = varMap.getVariableById(v.id); } catch (_) { existing = null; }
                     }
                     if (!existing && varMap && typeof varMap.getVariableByName === "function") {
-                        try { existing = varMap.getVariableByName(v.name); } catch (e) { existing = null; }
+                        try { existing = varMap.getVariableByName(v.name); } catch (_) { existing = null; }
                     }
-                    if (!existing && varMap && typeof varMap.getVariable === "function") {
-                        try { existing = varMap.getVariable(v.name); } catch (e) { existing = null; }
-                    }
-
                     if (existing) continue;
 
                     let created = null;
                     if (varMap && typeof varMap.createVariable === "function") {
                         try {
                             created = varMap.createVariable(v.name, v.type || "", v.id);
-                        } catch (e) {
-                            try {
-                                created = varMap.createVariable(v.name, v.type || "", undefined);
-                            } catch (e2) {
-                                created = null;
-                            }
+                        } catch (_) {
+                            try { created = varMap.createVariable(v.name, v.type || "", undefined); } catch (_) { created = null; }
                         }
                     }
                     if (!created && typeof ws.createVariable === "function") {
                         try {
                             created = ws.createVariable(v.name, v.type || "", v.id);
-                        } catch (e) {
-                            try {
-                                created = ws.createVariable(v.name, v.type || "", undefined);
-                            } catch (ee) {
-                                created = null;
-                            }
-                        }
-                    }
-
-                    if (!created && typeof Blockly !== "undefined" && typeof Blockly.Variables !== "undefined") {
-                        try {
-                            if (typeof Blockly.Variables.createVariable === "function") {
-                                created = Blockly.Variables.createVariable(ws, v.name, v.type || "", v.id);
-                            }
-                        } catch (e) {
-                            created = null;
+                        } catch (_) {
+                            try { created = ws.createVariable(v.name, v.type || "", undefined); } catch (_) { created = null; }
                         }
                     }
                 } catch (inner) {
@@ -522,28 +867,14 @@
         try {
             const varMap = ws.getVariableMap();
             if (!varMap) return null;
-
             let existing = null;
-            try {
-                existing = varMap.getVariable(name);
-            } catch (e) {
-                existing = null;
-            }
+            try { existing = varMap.getVariable(name); } catch (_) { existing = null; }
             if (!existing && typeof varMap.getVariableByName === "function") {
-                try {
-                    existing = varMap.getVariableByName(name);
-                } catch (e) {
-                    existing = null;
-                }
+                try { existing = varMap.getVariableByName(name); } catch (_) { existing = null; }
             }
-
             if (!existing) {
-                if (typeof varMap.createVariable === "function") {
-                    return varMap.createVariable(name, type || "", undefined);
-                }
-                if (typeof ws.createVariable === "function") {
-                    return ws.createVariable(name, type || "", undefined);
-                }
+                if (typeof varMap.createVariable === "function") return varMap.createVariable(name, type || "", undefined);
+                if (typeof ws.createVariable === "function") return ws.createVariable(name, type || "", undefined);
             }
             return existing;
         } catch (e) {
@@ -566,9 +897,7 @@
 
     function sanitizeForWorkspace(ws, root) {
         traverseSerializedBlocks(root, (b) => {
-            if (b.type === "variableReferenceBlock") return;
-            if (b.type === "subroutineArgumentBlock") return;
-
+            if (b.type === "variableReferenceBlock" || b.type === "subroutineArgumentBlock") return;
             if (b.fields) {
                 for (const [key, val] of Object.entries(b.fields)) {
                     const ku = key.toUpperCase();
@@ -580,9 +909,6 @@
                         }
                     }
                 }
-            }
-
-            if (b.fields) {
                 for (const [key, val] of Object.entries(b.fields)) {
                     if (typeof val !== "string") continue;
                     try {
@@ -594,11 +920,10 @@
                             if (!values.includes(val)) b.fields[key] = values[0] || "";
                         }
                         temp.dispose(false);
-                    } catch { }
+                    } catch (_) { }
                 }
             }
         });
-
         return root;
     }
 
@@ -607,7 +932,7 @@
             const full = _Blockly.serialization.blocks.save(block);
             if (full && full.next) delete full.next;
             return full;
-        } catch (e) {
+        } catch (_) {
             try {
                 if (typeof Blockly !== "undefined" && Blockly.Xml) {
                     const xml = Blockly.Xml.blockToDom(block, true);
@@ -618,57 +943,24 @@
         }
     }
 
-    function getBlockFromEventTarget(target) {
-        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
-        if (!ws || !target || !target.closest) return null;
-        const el = target.closest(".blocklyDraggable");
-        if (!el) return null;
-        const id = el.getAttribute("data-id") || el.getAttribute("data-block-id");
-        if (id && typeof ws.getBlockById === "function") {
-            const b = ws.getBlockById(id);
-            if (b) return b;
-        }
-        try {
-            const selected = plugin.getSelectedBlocks({}) || [];
-            return selected.length === 1 ? selected[0] : null;
-        } catch (_) {
-            return null;
-        }
-    }
-
-    async function copyBlockDataToPending(block) {
-        const data = extractBlockForClipboard(block);
-        if (!data) throw new Error("Unable to serialize block");
-        pendingBlockData = data;
-        await copyText(JSON.stringify(data, null, 2));
-    }
-
     function renameSubroutineIfNeeded(ws, data) {
         try {
             if (!data || data.type !== "subroutineBlock") return data;
-
-            const originalName =
-                data.extraState?.subroutineName ||
-                data.fields?.SUBROUTINE_NAME;
-
+            const originalName = data.extraState?.subroutineName || data.fields?.SUBROUTINE_NAME;
             if (!originalName) return data;
 
             const existingNames = new Set();
-
             const allBlocks = ws.getAllBlocks(false);
             for (const b of allBlocks) {
                 if (b.type === "subroutineBlock") {
-                    const name =
-                        (b.extraState && b.extraState.subroutineName) ||
-                        (b.getField && b.getField("SUBROUTINE_NAME")?.getValue());
+                    const name = (b.extraState && b.extraState.subroutineName) || (b.getField && b.getField("SUBROUTINE_NAME")?.getValue());
                     if (name) existingNames.add(name);
                 }
             }
 
             if (!existingNames.has(originalName)) return data;
 
-            let i = 1;
-            let newName = originalName + i;
+            let i = 1, newName = originalName + i;
             while (existingNames.has(newName)) {
                 i++;
                 newName = originalName + i;
@@ -825,8 +1117,9 @@
         state.filterParent = item.parent;
         state.filterChild[item.parent] = item.child;
         state.currentColor = item.color || 0;
+        inputHidden = false;
         renderPanel();
-        titleEl.focus();
+        if (titleEl) titleEl.focus();
     }
 
     function cancelEdit() {
@@ -842,23 +1135,10 @@
         renderPanel();
     }
 
-    function deleteItem(item) {
-        if (!confirm("Delete this snippet?")) return;
-        state.items = state.items.filter(x => x.id !== item.id);
-        selectedIds.delete(String(item.id));
-        reorderGroup(item.parent, item.child);
-        saveState();
-        renderPanel();
-    }
-
     function reorderGroup(parent, child) {
         state.items.filter(x => x.parent === parent && x.child === child)
             .sort((a, b) => (a.order || 0) - (b.order || 0))
             .forEach((x, i) => x.order = i);
-    }
-
-    function selectedItems() {
-        return state.items.filter(x => selectedIds.has(String(x.id)));
     }
 
     function exportData() {
@@ -950,7 +1230,6 @@
         panel.style.right = "auto";
     }
 
-    // イベント委譲により、renderPanel が何度走っても確実にタイトル部でドラッグできるように修正
     function enablePanelDragging() {
         if (!panel || panel._dragInitialized) return;
         panel._dragInitialized = true;
@@ -958,7 +1237,7 @@
         panel.addEventListener("mousedown", e => {
             if (e.button !== 0) return;
             const title = e.target.closest(".jcs-title");
-            if (!title) return; // タイトルバー以外のクリックは無視
+            if (!title) return;
 
             e.preventDefault();
             const r = panel.getBoundingClientRect();
