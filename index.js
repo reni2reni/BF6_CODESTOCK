@@ -4,6 +4,10 @@
 
     const plugin = BF2042Portal.Plugins.getPlugin("jsCodeStock");
     const STORAGE_KEY = "BF2042Portal_JSCodeStock_v1";
+    // Category counts are fixed: 4 parent categories, 6 child categories each.
+    const PARENT_COUNT = 4;
+    const CHILD_COUNT = 6;
+    const COLOR_COUNT = 8;
     const DEFAULT_PARENTS = ["A", "B", "C", "D"];
     const DEFAULT_CHILDREN = [
         ["A-0", "A-1", "A-2", "A-3", "A-4", "A-5"],
@@ -58,21 +62,21 @@
             const saved = JSON.parse(raw);
             const d = cloneDefault();
             state = Object.assign(d, saved);
-            if (!Array.isArray(state.filterChild)) state.filterChild = [0,0,0,0];
-            if (state.filterChild.length !== 4) state.filterChild = [0,0,0,0];
-            state.filterChild = state.filterChild.map((v) => Number.isInteger(v) && v >= 0 && v < 6 ? v : 0);
-            if (!Array.isArray(state.parents) || state.parents.length !== 4) state.parents = d.parents;
-            if (!Array.isArray(state.children) || state.children.length !== 4) {
+            if (!Array.isArray(state.filterChild)) state.filterChild = Array(PARENT_COUNT).fill(0);
+            if (state.filterChild.length !== PARENT_COUNT) state.filterChild = Array(PARENT_COUNT).fill(0);
+            state.filterChild = state.filterChild.map((v) => Number.isInteger(v) && v >= 0 && v < CHILD_COUNT ? v : 0);
+            if (!Array.isArray(state.parents) || state.parents.length !== PARENT_COUNT) state.parents = d.parents;
+            if (!Array.isArray(state.children) || state.children.length !== PARENT_COUNT) {
                 state.children = d.children;
             } else {
                 // v1.1 compatibility: expand existing 5-child categories to 6.
                 state.children = state.children.map((children, parentIndex) => {
-                    const next = Array.isArray(children) ? children.slice(0, 6) : [];
-                    while (next.length < 6) next.push(d.children[parentIndex][next.length]);
+                    const next = Array.isArray(children) ? children.slice(0, CHILD_COUNT) : [];
+                    while (next.length < CHILD_COUNT) next.push(d.children[parentIndex][next.length]);
                     return next;
                 });
             }
-            if (!Array.isArray(state.palette) || state.palette.length !== 8) state.palette = d.palette;
+            if (!Array.isArray(state.palette) || state.palette.length !== COLOR_COUNT) state.palette = d.palette;
             if (!Array.isArray(state.items)) state.items = [];
         } catch (e) {
             console.error("[JS Code Stock] load failed", e);
@@ -212,7 +216,7 @@
 
         const parentTabs = document.createElement("div");
         parentTabs.className = "jcs-tabs";
-        state.parents.forEach((name, i) => {
+        state.parents.slice(0, PARENT_COUNT).forEach((name, i) => {
             const b = makeButton(name, () => { state.filterParent = i; renderPanel(); }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -224,7 +228,7 @@
 
         const childTabs = document.createElement("div");
         childTabs.className = "jcs-tabs jcs-child";
-        state.children[state.filterParent].forEach((name, i) => {
+        state.children[state.filterParent].slice(0, CHILD_COUNT).forEach((name, i) => {
             const b = makeButton(name, () => { state.filterChild[state.filterParent] = i; renderPanel(); }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -236,7 +240,7 @@
 
         const colorTabs = document.createElement("div");
         colorTabs.className = "jcs-tabs jcs-colors";
-        state.palette.forEach((c, i) => {
+        state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
             const b = makeButton("", () => { state.currentColor = i; renderPanel(); }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
             b.style.background = c;
             b.title = "Color " + (i + 1) + " — right click to change";
@@ -314,7 +318,7 @@
         all.style.flex = "none";
         all.style.padding = "0 6px";
         fc.appendChild(all);
-        state.palette.forEach((c, i) => {
+        state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
             const b = makeButton("", () => { state.filterColor = state.filterColor === i ? null : i; renderPanel(); }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
             b.style.background = c;
             b.style.width = "24px"; b.style.minWidth = "24px"; b.style.height = "16px"; b.style.padding = "0";
@@ -547,22 +551,22 @@
                     if (!confirm("Overwrite current JS Code Stock data?")) return;
                     if (Array.isArray(data.items)) state.items = data.items;
                     if (data.config) {
-                        if (Array.isArray(data.config.parents) && data.config.parents.length === 4) {
+                        if (Array.isArray(data.config.parents) && data.config.parents.length === PARENT_COUNT) {
                             state.parents = data.config.parents;
                         }
-                        if (Array.isArray(data.config.children) && data.config.children.length === 4) {
+                        if (Array.isArray(data.config.children) && data.config.children.length === PARENT_COUNT) {
                             state.children = data.config.children.map((children, parentIndex) => {
-                                const next = Array.isArray(children) ? children.slice(0, 6) : [];
-                                while (next.length < 6) next.push(DEFAULT_CHILDREN[parentIndex][next.length]);
+                                const next = Array.isArray(children) ? children.slice(0, CHILD_COUNT) : [];
+                                while (next.length < CHILD_COUNT) next.push(DEFAULT_CHILDREN[parentIndex][next.length]);
                                 return next;
                             });
                         }
-                        if (Array.isArray(data.config.palette) && data.config.palette.length === 8) state.palette = data.config.palette;
-                        if (data.config.filterParent !== undefined) state.filterParent = Math.max(0, Math.min(3, Number(data.config.filterParent) || 0));
+                        if (Array.isArray(data.config.palette) && data.config.palette.length === COLOR_COUNT) state.palette = data.config.palette;
+                        if (data.config.filterParent !== undefined) state.filterParent = Math.max(0, Math.min(PARENT_COUNT - 1, Number(data.config.filterParent) || 0));
                         if (Array.isArray(data.config.filterChild)) {
                             state.filterChild = [0, 1, 2, 3].map((i) => {
                                 const v = Number(data.config.filterChild[i]);
-                                return Number.isInteger(v) && v >= 0 && v < 6 ? v : 0;
+                                return Number.isInteger(v) && v >= 0 && v < CHILD_COUNT ? v : 0;
                             });
                         }
                     }
