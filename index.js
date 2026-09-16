@@ -471,6 +471,70 @@
 
     // ドラッグ＆ドロップ配置：禁止マークを出さず、マウスカーソルに追従させて確実にドロップ
     // ドラッグ＆ドロップ配置：Blocklyネイティブのドラッグ機構に引き渡して自動挿入・スナップ結合させる
+    function autoConnectBlock(createdBlock) {
+        if (!createdBlock || !createdBlock.workspace) return;
+        const ws = createdBlock.workspace;
+        const SNAP_RADIUS = 60; // 結合を吸い寄せる判定距離(px)
+
+        const myConns = [];
+        if (createdBlock.previousConnection) myConns.push(createdBlock.previousConnection);
+        if (createdBlock.outputConnection) myConns.push(createdBlock.outputConnection);
+        const lastBlock = createdBlock.lastConnectionInStack ? createdBlock.lastConnectionInStack() : createdBlock;
+        if (lastBlock && lastBlock.nextConnection) myConns.push(lastBlock.nextConnection);
+
+        let bestDist = SNAP_RADIUS;
+        let bestMyConn = null;
+        let bestTargetConn = null;
+
+        const allBlocks = ws.getAllBlocks(false);
+        for (const other of allBlocks) {
+            if (other === createdBlock || other.getRootBlock() === createdBlock) continue;
+
+            const targetConns = [];
+            if (other.previousConnection) targetConns.push(other.previousConnection);
+            if (other.nextConnection) targetConns.push(other.nextConnection);
+            if (other.inputList) {
+                for (const input of other.inputList) {
+                    if (input.connection) targetConns.push(input.connection);
+                }
+            }
+
+            for (const myC of myConns) {
+                for (const targetC of targetConns) {
+                    // 接続可能か判定
+                    if (typeof myC.canConnectWithReason_ === "function") {
+                        if (myC.canConnectWithReason_(targetC) !== 0) continue;
+                    } else if (typeof myC.isConnectionAllowed === "function") {
+                        if (!myC.isConnectionAllowed(targetC)) continue;
+                    }
+
+                    const p1 = myC.x !== undefined ? { x: myC.x, y: myC.y } : (myC.getLocation ? myC.getLocation() : null);
+                    const p2 = targetC.x !== undefined ? { x: targetC.x, y: targetC.y } : (targetC.getLocation ? targetC.getLocation() : null);
+                    if (!p1 || !p2) continue;
+
+                    const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestMyConn = myC;
+                        bestTargetConn = targetC;
+                    }
+                }
+            }
+        }
+
+        // 最寄りの接続口に自動挿入
+        if (bestMyConn && bestTargetConn) {
+            try {
+                bestMyConn.connect(bestTargetConn);
+                const root = createdBlock.getRootBlock();
+                if (root && typeof root.render === "function") root.render();
+            } catch (err) {
+                console.warn("[JS Code Stock] autoConnect error:", err);
+            }
+        }
+    }
+
+    // ドラッグ＆ドロップ配置：マウスを離すまで絶対に落ちず吸着し、離した瞬間にブロック内へ自動挿入
     function attachDragOutListener(item, nameEl) {
         nameEl.addEventListener("mousedown", (e) => {
             if (e.button !== 0) return;
@@ -480,87 +544,63 @@
 
             const startX = e.clientX, startY = e.clientY;
             let isDragging = false;
+            let createdBlock = null;
+            let ws = null;
 
             const onMouseMove = (moveEvent) => {
-                if (isDragging) return;
-
                 if (!panel) return;
                 const rect = panel.getBoundingClientRect();
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
                     moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
                 const dist = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
 
-                // パネル外に出た瞬間に発動
-                if (isOutside || dist > 15) {
+                // パネル外に出た瞬間にブロック生成＆パネル消去
+                if (!isDragging && (isOutside || dist > 15)) {
                     isDragging = true;
-                    cleanup();
-
-                    const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
-                    if (!ws) return;
-
-                    // 1. ブロックインスタンスを生成
-                    const createdBlock = createBlockInstance(ws, item);
-                    if (!createdBlock) return;
-
-                    // 2. パネルを閉じる
+                    ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+                    if (ws) {
+                        createdBlock = createBlockInstance(ws, item);
+                    }
                     closePanel();
+                }
 
-                    // 3. マウスの初期位置へ配置
+                // マウスカーソルにブロックをぴったり追従吸着（途中で落とさない）
+                if (isDragging && createdBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                     if (typeof createdBlock.moveTo === "function") {
                         createdBlock.moveTo(new Coordinate(coords.x, coords.y));
                     }
-                    if (typeof createdBlock.render === "function") createdBlock.render();
-
-                    // 4. BlocklyのGesture（ドラッグ管理）を開始
-                    let gesture = null;
-                    try {
-                        gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
-                        if (gesture) {
-                            gesture.setStartBlock(createdBlock);
-                            gesture.handleBlockStart(moveEvent, createdBlock);
-                            // 即座にドラッグ状態へ遷移させる
-                            if (typeof gesture.handleMove === "function") {
-                                gesture.handleMove(moveEvent);
-                            }
-                        }
-                    } catch (err) {
-                        console.warn("[JS Code Stock] Gesture start failed:", err);
+                    if (typeof createdBlock.select === "function") {
+                        createdBlock.select();
                     }
-
-                    // 5. ★ここが核心：マウスの移動と離した瞬間をBlocklyへ完全中継する
-                    // これによりブロック間やC型ブロック内に黄色い挿入マーカーが出て、離した瞬間にパチンと結合されます
-                    const onBlockDragMove = (ev) => {
-                        if (gesture && typeof gesture.handleMove === "function") {
-                            gesture.handleMove(ev);
-                        }
-                    };
-
-                    const onBlockDragUp = (ev) => {
-                        document.removeEventListener("mousemove", onBlockDragMove);
-                        document.removeEventListener("mouseup", onBlockDragUp);
-
-                        if (gesture && typeof gesture.handleUp === "function") {
-                            gesture.handleUp(ev); // ここで挿入・接続が確定実行される
-                        }
-                    };
-
-                    document.addEventListener("mousemove", onBlockDragMove);
-                    document.addEventListener("mouseup", onBlockDragUp);
                 }
             };
 
-            const onMouseUp = () => {
-                cleanup();
-                if (!isDragging) {
-                    handleItemClick(item, nameEl);
-                }
-            };
-
-            const cleanup = () => {
+            const onMouseUp = (upEvent) => {
                 document.removeEventListener("mousemove", onMouseMove);
                 document.removeEventListener("mouseup", onMouseUp);
+
+                if (isDragging) {
+                    if (createdBlock && ws) {
+                        // 最終位置にセット
+                        const coords = getWorkspaceCoords(ws, upEvent);
+                        const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+                        if (typeof createdBlock.moveTo === "function") {
+                            createdBlock.moveTo(new Coordinate(coords.x, coords.y));
+                        }
+                        if (typeof createdBlock.render === "function") createdBlock.render();
+
+                        // ★ここで近くのブロックの中や間にパチンと自動結合
+                        autoConnectBlock(createdBlock);
+
+                        if (typeof createdBlock.select === "function") createdBlock.select();
+                        if (typeof createdBlock.bumpNeighbours === "function") createdBlock.bumpNeighbours();
+                    }
+                } else {
+                    // パネル内クリック時はクリップボードコピー
+                    handleItemClick(item, nameEl);
+                }
             };
 
             document.addEventListener("mousemove", onMouseMove);
