@@ -469,8 +469,6 @@
         return createdBlock;
     }
 
-    // ドラッグ＆ドロップ配置：禁止マークを出さず、マウスカーソルに追従させて確実にドロップ
-    // ドラッグ＆ドロップ配置：Blocklyネイティブのドラッグ機構に引き渡して自動挿入・スナップ結合させる
     function autoConnectBlock(createdBlock) {
         if (!createdBlock || !createdBlock.workspace) return;
         const ws = createdBlock.workspace;
