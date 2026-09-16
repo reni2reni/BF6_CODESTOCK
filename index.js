@@ -705,7 +705,7 @@
             isPinned = !isPinned;
             renderPanel();
         }, "jcs-pin" + (isPinned ? "" : " unlocked"));
-        pinBtn.title = isPinned ? "ロック中（操作後も閉じない）" : "アンロック（操作後に自動で閉じる）";
+        pinBtn.title = isPinned ? "Locked(does not close after use)" : "Unlocked(closes automatically after use)";
 
         // ⬒ / ▉ 折りたたみ（最小化/展開）ボタン
         const collapseBtn = makeButton(isCollapsed ? "▉" : "⬒", () => {
@@ -715,7 +715,7 @@
             }
             renderPanel();
         }, "jcs-collapse");
-        collapseBtn.title = isCollapsed ? "展開する" : "タイトルのみ残して最小化";
+        collapseBtn.title = isCollapsed ? "Expand" : "Minimize, leaving only the title";
 
         const close = makeButton("✕", closePanel, "jcs-close");
         close.title = "Close";
@@ -997,7 +997,7 @@
             name.className = "jcs-name";
             name.style.borderLeftColor = state.palette[item.color || 0];
             name.textContent = item.title;
-            name.title = "ドラッグしてワークスペースに配置 / クリックでコピー";
+            name.title = "Drag and drop onto the workspace / Click to copy";
             attachDragOutListener(item, name);
 
             const actions = document.createElement("div");
