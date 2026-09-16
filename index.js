@@ -67,11 +67,12 @@
             const saved = JSON.parse(raw);
             const d = cloneDefault();
             state = Object.assign(d, saved);
-            
-            // 初期のタブ選択は常に 親0、子0 にリセット
             state.filterParent = 0;
             state.filterChild = Array(PARENT_COUNT).fill(0);
-
+            if (!Array.isArray(state.parents) || state.parents.length !== PARENT_COUNT) state.parents = d.parents;
+            if (!Array.isArray(state.filterChild)) state.filterChild = Array(PARENT_COUNT).fill(0);
+            if (state.filterChild.length !== PARENT_COUNT) state.filterChild = Array(PARENT_COUNT).fill(0);
+            state.filterChild = state.filterChild.map((v) => Number.isInteger(v) && v >= 0 && v < CHILD_COUNT ? v : 0);
             if (!Array.isArray(state.parents) || state.parents.length !== PARENT_COUNT) state.parents = d.parents;
             if (!Array.isArray(state.children) || state.children.length !== PARENT_COUNT) {
                 state.children = d.children;
@@ -439,10 +440,12 @@
           name = raw.name || null;
           type = raw.type || "";
         } else if (typeof raw === "string") {
+          // Some serialized forms store only the name
           id = null;
           name = raw;
           type = "";
         }
+        // also check extraState.isObjectVar if present
         const isObjectVar = !!(b.extraState && b.extraState.isObjectVar);
         if (name) {
           const key = id || name + "::" + type;
@@ -455,31 +458,64 @@
     return Array.from(varsById.values());
   }
 
+  /* ---------------------------
+     Register/create variables in the workspace BEFORE block creation.
+     Attempts multiple varMap/workspace APIs and prefers creating variable
+     with the original id where possible.
+  ---------------------------- */
   function registerVariablesBeforePaste(ws, varDefs) {
     try {
       const varMap = ws.getVariableMap ? ws.getVariableMap() : null;
 
       for (const v of varDefs) {
         try {
+          // Try find existing by id first
           let existing = null;
           if (varMap && typeof varMap.getVariable === "function") {
-            try { existing = varMap.getVariable(v.id); } catch (e) { existing = null; }
+            // some variants accept id or name; try both defensively
+            try {
+              existing = varMap.getVariable(v.id);
+            } catch (e) {
+              existing = null;
+            }
           }
+          // varMap.getVariableById?
           if (!existing && varMap && typeof varMap.getVariableById === "function") {
-            try { existing = varMap.getVariableById(v.id); } catch (e) { existing = null; }
+            try {
+              existing = varMap.getVariableById(v.id);
+            } catch (e) {
+              existing = null;
+            }
           }
+          // try by name
           if (!existing && varMap && typeof varMap.getVariableByName === "function") {
-            try { existing = varMap.getVariableByName(v.name); } catch (e) { existing = null; }
+            try {
+              existing = varMap.getVariableByName(v.name);
+            } catch (e) {
+              existing = null;
+            }
           }
           if (!existing && varMap && typeof varMap.getVariable === "function") {
-            try { existing = varMap.getVariable(v.name); } catch (e) { existing = null; }
+            // some builds use getVariable(name)
+            try {
+              existing = varMap.getVariable(v.name);
+            } catch (e) {
+              existing = null;
+            }
           }
 
-          if (existing) continue;
+          // If a variable with the exact id exists, ensure type matches (do not change)
+          if (existing) {
+            // If existing type differs and name differs, don't overwrite — preserved workspace variable wins.
+            // We only create if missing.
+            continue;
+          }
 
+          // Create variable using the best API available. Try to keep id when possible.
           let created = null;
           if (varMap && typeof varMap.createVariable === "function") {
             try {
+              // createVariable(name, type, id) is supported by some Blockly versions
               created = varMap.createVariable(v.name, v.type || "", v.id);
             } catch (e) {
               try {
@@ -501,8 +537,10 @@
             }
           }
 
+          // As a last resort, try Blockly global API if present
           if (!created && typeof Blockly !== "undefined" && typeof Blockly.Variables !== "undefined") {
             try {
+              // Some builds provide Blockly.Variables.createVariable
               if (typeof Blockly.Variables.createVariable === "function") {
                 created = Blockly.Variables.createVariable(ws, v.name, v.type || "", v.id);
               }
@@ -511,6 +549,7 @@
             }
           }
         } catch (inner) {
+          // ignore per-variable creation errors
           console.warn("[CopyPastePlugin] registerVariablesBeforePaste error for", v, inner);
         }
       }
@@ -565,6 +604,7 @@
     if (node.next && node.next.block) traverseSerializedBlocks(node.next.block, cb);
   }
 
+  /* Fixed sanitizer: skip variableReferenceBlock and subroutineArgumentBlock */
   function sanitizeForWorkspace(ws, root) {
     traverseSerializedBlocks(root, (b) => {
       if (b.type === "variableReferenceBlock") return;
@@ -602,6 +642,7 @@
 
     return root;
   }
+
 
     function extractBlockForClipboard(block) {
         try {
@@ -654,6 +695,7 @@ function renameSubroutineIfNeeded(ws, data) {
 
     if (!originalName) return data;
 
+    // Collect existing names
     const existingNames = new Set();
 
     const allBlocks = ws.getAllBlocks(false);
@@ -668,6 +710,7 @@ function renameSubroutineIfNeeded(ws, data) {
 
     if (!existingNames.has(originalName)) return data;
 
+    // Generate new unique name
     let i = 1;
     let newName = originalName + i;
     while (existingNames.has(newName)) {
@@ -675,13 +718,16 @@ function renameSubroutineIfNeeded(ws, data) {
       newName = originalName + i;
     }
 
+    // Apply new name to the subroutine
     if (data.extraState) data.extraState.subroutineName = newName;
     if (data.fields) data.fields.SUBROUTINE_NAME = newName;
 
+    // Also rewrite ANY reference to the subroutine name inside inputs
     traverseSerializedBlocks(data, (b) => {
       if (b.fields && b.fields.SUBROUTINE_NAME === originalName) {
         b.fields.SUBROUTINE_NAME = newName;
       }
+        enablePanelDragging();
     });
 
     return data;
@@ -690,6 +736,8 @@ function renameSubroutineIfNeeded(ws, data) {
     return data;
   }
 }
+
+
 
     async function pasteSerializedStock(text) {
         const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
@@ -760,7 +808,7 @@ function renameSubroutineIfNeeded(ws, data) {
             const data = extractBlockForClipboard(block);
             if (!data) throw new Error("Unable to serialize block");
             pendingBlockData = data;
-            copyText(JSON.stringify(data, null, 2)).catch(() => {});
+            copyText(JSON.stringify(data, null, 2)).catch(() => { });
             interactionMode = "blockEntry";
             editingIdValue = null;
             inputHidden = false;
@@ -932,6 +980,8 @@ function renameSubroutineIfNeeded(ws, data) {
         const e = lastContextMenuEvent || lastMouseEvent;
         if (!e) return;
 
+        // Show just to the right of the original right-click position.
+        // If there is not enough room, place it to the left instead.
         const gap = 12;
         const rect = panel.getBoundingClientRect();
         const w = rect.width || 400;
@@ -1007,6 +1057,11 @@ function renameSubroutineIfNeeded(ws, data) {
         if (menusRegistered) return;
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
+        // IMPORTANT: The Portal sample shows that plugin.registerItem() only
+        // adds the item to the plugin's item registry. A top-level Blockly
+        // context-menu entry must ALSO be registered with Blockly's registry.
+        // Do not create a menu here, otherwise Blockly displays a second
+        // submenu before running JS Code Stock.
         const workspaceItem = {
             id: "jsCodeStockWorkspace",
             displayText: "JS Code Stock",
