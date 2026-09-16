@@ -137,7 +137,7 @@
         const style = document.createElement("style");
         style.id = "js-code-stock-style";
         style.textContent = `
-#js-code-stock-panel{position:fixed;left:18px;top:58px;width:400px;height:600px;min-width:320px;min-height:320px;max-width:calc(100vw - 36px);max-height:calc(100vh - 76px);z-index:2147483646;background:#111;color:#fff;border:1px solid #333;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);font-family:sans-serif;display:flex;flex-direction:column;overflow:hidden;padding:6px;resize:both}
+#js-code-stock-panel{position:fixed;left:18px;top:58px;width:400px;height:600px;min-width:320px;min-height:320px;max-width:calc(100vw - 36px);max-height:calc(100vh - 76px);z-index:2147483646;background:#111;color:#fff;border:1px solid #333;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);font-family:sans-serif;display:flex;flex-direction:column;overflow:hidden;padding:6px;resize:both;user-select:none;-webkit-user-select:none}
 #js-code-stock-panel *{box-sizing:border-box}
 #js-code-stock-panel .jcs-container{display:flex;flex-direction:column;height:100%;padding:0 4px;min-height:0}
 #js-code-stock-panel .jcs-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
@@ -433,29 +433,16 @@
         return { x: (metrics.viewLeft || 0) + 50, y: (metrics.viewTop || 0) + 50 };
     }
 
-    // パネル外へドラッグした際に実行されるワークスペース配置処理
-    function startWorkspaceBlockDrag(item, moveEvent) {
-        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
-        if (!ws) return;
-
+    function createBlockInstance(ws, item) {
         let data;
-        try {
-            data = JSON.parse(item.body);
-        } catch (_) {
-            setStatus("Invalid block JSON");
-            return;
-        }
+        try { data = JSON.parse(item.body); }
+        catch (_) { return null; }
 
-        // 1. パネルを即座に閉じる
-        closePanel();
-
-        // 2. 変数・サブルーチンリネーム・サニタイズ
         const varDefs = extractVariableDefinitions(data);
         if (varDefs.length > 0) registerVariablesBeforePaste(ws, varDefs);
         data = renameSubroutineIfNeeded(ws, data);
         data = sanitizeForWorkspace(ws, data);
 
-        // 3. ブロック生成
         const existingBlocks = new Set(ws.getAllBlocks(false));
         let createdBlock = null;
 
@@ -467,7 +454,7 @@
                 createdBlock = Blockly.Xml.domToBlock(dom, ws);
             }
         } catch (e) {
-            console.warn("[JS Code Stock] append failed:", e);
+            console.warn("[JS Code Stock] block append failed:", e);
         }
 
         if (!createdBlock || typeof createdBlock.initSvg !== "function") {
@@ -479,42 +466,22 @@
                 }
             }
         }
-
-        if (!createdBlock) return;
-
-        // 4. マウス位置へ移動
-        const coords = getWorkspaceCoords(ws, moveEvent);
-        if (typeof createdBlock.moveTo === "function") {
-            const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function(x,y){this.x=x;this.y=y;};
-            createdBlock.moveTo(new Coordinate(coords.x, coords.y));
-        }
-        if (typeof createdBlock.render === "function") {
-            createdBlock.render();
-        }
-        if (typeof createdBlock.select === "function") {
-            createdBlock.select();
-        }
-
-        // 5. Blockly ネイティブの Gesture (ブロックドラッグ状態) にバインドしてマウスに追従
-        try {
-            const gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
-            if (gesture) {
-                gesture.setStartBlock(createdBlock);
-                gesture.handleBlockStart(moveEvent, createdBlock);
-            }
-        } catch (err) {
-            console.warn("[JS Code Stock] Gesture binding failed:", err);
-        }
+        return createdBlock;
     }
 
-    // アイテム名部分でのドラッグアウト監視
+    // ドラッグ＆ドロップ配置：禁止マークを出さず、マウスカーソルに追従させて確実にドロップ
     function attachDragOutListener(item, nameEl) {
         nameEl.addEventListener("mousedown", (e) => {
             if (e.button !== 0) return;
             if (interactionMode === "blockEntry") return;
 
+            // ブラウザのテキストドラッグ（禁止マーク🚫）を完全に抑止
+            e.preventDefault();
+
             const startX = e.clientX, startY = e.clientY;
-            let draggedOut = false;
+            let isDragging = false;
+            let createdBlock = null;
+            let ws = null;
 
             const onMouseMove = (moveEvent) => {
                 if (!panel) return;
@@ -523,25 +490,52 @@
                                   moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
                 const dist = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
 
-                // 5px以上移動かつパネル外に出た時点で発動
-                if (dist > 5 && isOutside && !draggedOut) {
-                    draggedOut = true;
-                    cleanup();
-                    startWorkspaceBlockDrag(item, moveEvent);
+                // パネル外に出た瞬間にドラッグ配置モードを開始
+                if (!isDragging && (isOutside || dist > 15)) {
+                    isDragging = true;
+                    ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+                    if (ws) {
+                        createdBlock = createBlockInstance(ws, item);
+                    }
+                    // CODESTOCK パネルを非表示化
+                    closePanel();
+                }
+
+                // マウスカーソルにブロックをぴったり吸着追従させる
+                if (isDragging && createdBlock && ws) {
+                    const coords = getWorkspaceCoords(ws, moveEvent);
+                    const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function(x,y){this.x=x;this.y=y;};
+                    if (typeof createdBlock.moveTo === "function") {
+                        createdBlock.moveTo(new Coordinate(coords.x, coords.y));
+                    }
+                    if (typeof createdBlock.select === "function") {
+                        createdBlock.select();
+                    }
                 }
             };
 
             const onMouseUp = (upEvent) => {
-                cleanup();
-                if (!draggedOut) {
-                    // パネル内での通常クリック動作
-                    handleItemClick(item, nameEl);
-                }
-            };
-
-            const cleanup = () => {
                 document.removeEventListener("mousemove", onMouseMove);
                 document.removeEventListener("mouseup", onMouseUp);
+
+                if (isDragging) {
+                    // ドロップ完了：最終位置に配置して選択
+                    if (createdBlock) {
+                        if (ws) {
+                            const coords = getWorkspaceCoords(ws, upEvent);
+                            const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function(x,y){this.x=x;this.y=y;};
+                            if (typeof createdBlock.moveTo === "function") {
+                                createdBlock.moveTo(new Coordinate(coords.x, coords.y));
+                            }
+                        }
+                        if (typeof createdBlock.render === "function") createdBlock.render();
+                        if (typeof createdBlock.select === "function") createdBlock.select();
+                        if (typeof createdBlock.bumpNeighbours === "function") createdBlock.bumpNeighbours();
+                    }
+                } else {
+                    // パネル内での通常のクリック処理
+                    handleItemClick(item, nameEl);
+                }
             };
 
             document.addEventListener("mousemove", onMouseMove);
