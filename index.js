@@ -150,16 +150,15 @@
         const style = document.createElement("style");
         style.id = "js-code-stock-style";
         style.textContent = `
-#js-code-stock-panel{position:fixed;right:18px;top:58px;width:400px;height:600px;min-width:320px;min-height:320px;max-width:calc(100vw - 36px);max-height:calc(100vh - 76px);z-index:2147483646;background:#111;color:#fff;border:1px solid #333;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);font-family:sans-serif;display:flex;flex-direction:column;overflow:hidden;padding:6px;resize:both}
+#js-code-stock-panel{position:fixed;left:18px;top:58px;width:400px;height:600px;min-width:320px;min-height:320px;max-width:calc(100vw - 36px);max-height:calc(100vh - 76px);z-index:2147483646;background:#111;color:#fff;border:1px solid #333;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);font-family:sans-serif;display:flex;flex-direction:column;overflow:hidden;padding:6px;resize:both}
 #js-code-stock-panel *{box-sizing:border-box}
 #js-code-stock-panel .jcs-container{display:flex;flex-direction:column;height:100%;padding:0 4px;min-height:0}
 #js-code-stock-panel .jcs-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-#js-code-stock-panel .jcs-title{font-size:18px;text-align:left}
+#js-code-stock-panel .jcs-title{font-size:18px;text-align:left;cursor:move;user-select:none}
 #js-code-stock-panel .jcs-tools{display:flex;gap:4px;align-items:center}
 #js-code-stock-panel button{background:#333;color:#fff;border:none;border-radius:2px;cursor:pointer}
 #js-code-stock-panel button:hover{background:#3b3b3b}
 #js-code-stock-panel .jcs-tools button{font-size:11px;padding:5px 7px}
-#js-code-stock-panel .jcs-window{font-size:18px;padding:1px 6px}
 #js-code-stock-panel .jcs-close{font-size:18px;padding:1px 6px;background:#7a2020}
 #js-code-stock-panel .jcs-close:hover{background:#a52a2a}
 #js-code-stock-panel .jcs-tabs{display:flex;gap:0;background:#1f1f1f;padding:2px 12px 0;overflow:hidden}
@@ -168,7 +167,7 @@
 #js-code-stock-panel .jcs-tab.active{background:#35363a;color:#fff;z-index:3;box-shadow:-2px 0 0 0 #fff,2px 0 0 0 #fff,0 -2px 0 0 #fff}
 #js-code-stock-panel .jcs-child{margin-bottom:4px}
 #js-code-stock-panel .jcs-colors{display:flex;gap:4px;background:transparent;padding:0 0 3px;overflow:visible}
-#js-code-stock-panel .jcs-colors .jcs-tab{flex:1;min-width:0;height:16px;padding:0;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-colors .jcs-tab{flex:none;width:24px;min-width:24px;height:16px;padding:0;box-shadow:none;transform:none;border-radius:2px}
 #js-code-stock-panel .jcs-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-input-section{margin-bottom:6px}
 #js-code-stock-panel .jcs-input-row{display:flex;gap:4px}
@@ -184,7 +183,7 @@
 #js-code-stock-panel #jcs-toggle-input{width:100%;height:30px;background:#444;border:none;color:#fff;cursor:pointer;margin-top:3px;font-size:13px}
 #js-code-stock-panel .jcs-filter{padding:0 0 3px;border-bottom:1px solid #333}
 #js-code-stock-panel .jcs-filter-colors{display:flex;gap:4px;background:transparent;padding:0;overflow:visible}
-#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:1;min-width:0;height:16px;padding:0;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:none;width:auto;min-width:24px;height:16px;padding:0 6px;box-shadow:none;transform:none;border-radius:2px}
 #js-code-stock-panel .jcs-filter-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-search{height:30px;font-size:18px;margin-top:3px}
 #js-code-stock-panel .jcs-list{flex:1;overflow:auto;margin-top:4px;min-height:0;padding-right:2px}
@@ -231,8 +230,6 @@
         tools.className = "jcs-tools";
         tools.appendChild(makeButton("EXPORT", exportData));
         tools.appendChild(makeButton("IMPORT", importData));
-        const win = makeButton("⮺", openPanel, "jcs-window");
-        tools.appendChild(win);
         const close = makeButton("✕", closePanel, "jcs-close");
         close.title = "Close";
         tools.appendChild(close);
@@ -727,6 +724,7 @@ function renameSubroutineIfNeeded(ws, data) {
       if (b.fields && b.fields.SUBROUTINE_NAME === originalName) {
         b.fields.SUBROUTINE_NAME = newName;
       }
+        enablePanelDragging();
     });
 
     return data;
@@ -971,10 +969,65 @@ function renameSubroutineIfNeeded(ws, data) {
         input.click();
     }
 
+    function positionPanelAtContext() {
+        if (!panel) return;
+        const e = lastContextMenuEvent || lastMouseEvent;
+        if (!e) return;
+
+        // Show just to the right of the original right-click position.
+        // If there is not enough room, place it to the left instead.
+        const gap = 12;
+        const rect = panel.getBoundingClientRect();
+        const w = rect.width || 400;
+        const h = rect.height || 600;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        let left = e.clientX + gap;
+        if (left + w > vw - 8) left = e.clientX - w - gap;
+        left = Math.max(8, Math.min(left, vw - w - 8));
+
+        let top = e.clientY - 20;
+        top = Math.max(8, Math.min(top, vh - h - 8));
+
+        panel.style.left = left + "px";
+        panel.style.top = top + "px";
+        panel.style.right = "auto";
+    }
+
+    function enablePanelDragging() {
+        if (!panel || panel.dataset.dragReady === "1") return;
+        const title = panel.querySelector(".jcs-title");
+        if (!title) return;
+        panel.dataset.dragReady = "1";
+        title.addEventListener("mousedown", e => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            const r = panel.getBoundingClientRect();
+            const startX = e.clientX, startY = e.clientY;
+            const startLeft = r.left, startTop = r.top;
+            const move = ev => {
+                const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+                const maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
+                panel.style.left = Math.max(8, Math.min(startLeft + ev.clientX - startX, maxLeft)) + "px";
+                panel.style.top = Math.max(8, Math.min(startTop + ev.clientY - startY, maxTop)) + "px";
+                panel.style.right = "auto";
+            };
+            const up = () => {
+                document.removeEventListener("mousemove", move);
+                document.removeEventListener("mouseup", up);
+            };
+            document.addEventListener("mousemove", move);
+            document.addEventListener("mouseup", up);
+        });
+    }
+
     function openPanel() {
         if (panel) {
             panel.style.display = "flex";
             renderPanel();
+            enablePanelDragging();
+            requestAnimationFrame(positionPanelAtContext);
             return;
         }
         injectStyle();
@@ -982,6 +1035,8 @@ function renameSubroutineIfNeeded(ws, data) {
         panel.id = "js-code-stock-panel";
         document.body.appendChild(panel);
         renderPanel();
+        enablePanelDragging();
+        requestAnimationFrame(positionPanelAtContext);
     }
 
     function closePanel() {
