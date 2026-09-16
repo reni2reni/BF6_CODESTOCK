@@ -1037,8 +1037,18 @@ function renameSubroutineIfNeeded(ws, data) {
     function registerMenus() {
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
-        // Direct context-menu entries only. No JS Code Stock submenu/side menu.
-        // Workspace right-click -> JS Code Stock opens paste mode immediately.
+        // Blockly/Portal requires a registered menu to make the entry appear
+        // in the native right-click context menu.  Keep JS Code Stock as one
+        // menu item; do not open the stock panel automatically on left-click.
+        const workspaceMenu = plugin.createMenu(
+            "jsCodeStockWorkspaceMenu",
+            "JS Code Stock",
+            Scope.WORKSPACE
+        );
+        workspaceMenu.options = ["items.jsCodeStockWorkspace"];
+        plugin.registerMenu(workspaceMenu);
+        _Blockly.ContextMenuRegistry.registry.register(workspaceMenu);
+
         plugin.registerItem({
             id: "jsCodeStockWorkspace",
             displayText: "JS Code Stock",
@@ -1048,7 +1058,15 @@ function renameSubroutineIfNeeded(ws, data) {
             callback: () => openWorkspacePasteMode()
         });
 
-        // Block right-click -> JS Code Stock treats the block as a new entry.
+        const blockMenu = plugin.createMenu(
+            "jsCodeStockBlockMenu",
+            "JS Code Stock",
+            Scope.BLOCK
+        );
+        blockMenu.options = ["items.jsCodeStockBlock"];
+        plugin.registerMenu(blockMenu);
+        _Blockly.ContextMenuRegistry.registry.register(blockMenu);
+
         plugin.registerItem({
             id: "jsCodeStockBlock",
             displayText: "JS Code Stock",
@@ -1057,7 +1075,12 @@ function renameSubroutineIfNeeded(ws, data) {
             preconditionFn: () => "enabled",
             callback: scope => {
                 const blocks = plugin.getSelectedBlocks(scope) || [];
-                if (blocks.length) openBlockEntryMode(blocks[0]);
+                if (blocks.length) {
+                    openBlockEntryMode(blocks[0]);
+                } else {
+                    // A block-scoped menu should only be used with a block.
+                    openWorkspacePasteMode();
+                }
             }
         });
     }
