@@ -6,10 +6,10 @@
     const STORAGE_KEY = "BF2042Portal_JSCodeStock_v1";
     const DEFAULT_PARENTS = ["A", "B", "C", "D"];
     const DEFAULT_CHILDREN = [
-        ["A-0", "A-1", "A-2", "A-3", "A-4", "A-5"],
-        ["B-0", "B-1", "B-2", "B-3", "B-4", "B-5"],
-        ["C-0", "C-1", "C-2", "C-3", "C-4", "C-5"],
-        ["D-0", "D-1", "D-2", "D-3", "D-4", "D-5"]
+        ["A-0", "A-1", "A-2", "A-3", "A-4"],
+        ["B-0", "B-1", "B-2", "B-3", "B-4"],
+        ["C-0", "C-1", "C-2", "C-3", "C-4"],
+        ["D-0", "D-1", "D-2", "D-3", "D-4"]
     ];
     const DEFAULT_PALETTE = [
         "#e74c3c", "#f39c12", "#f1c40f", "#2ecc71",
@@ -59,19 +59,8 @@
             const d = cloneDefault();
             state = Object.assign(d, saved);
             if (!Array.isArray(state.filterChild)) state.filterChild = [0,0,0,0];
-            if (state.filterChild.length !== 4) state.filterChild = [0,0,0,0];
-            state.filterChild = state.filterChild.map((v) => Number.isInteger(v) && v >= 0 && v < 6 ? v : 0);
             if (!Array.isArray(state.parents) || state.parents.length !== 4) state.parents = d.parents;
-            if (!Array.isArray(state.children) || state.children.length !== 4) {
-                state.children = d.children;
-            } else {
-                // v1.1 compatibility: expand existing 5-child categories to 6.
-                state.children = state.children.map((children, parentIndex) => {
-                    const next = Array.isArray(children) ? children.slice(0, 6) : [];
-                    while (next.length < 6) next.push(d.children[parentIndex][next.length]);
-                    return next;
-                });
-            }
+            if (!Array.isArray(state.children) || state.children.length !== 4) state.children = d.children;
             if (!Array.isArray(state.palette) || state.palette.length !== 8) state.palette = d.palette;
             if (!Array.isArray(state.items)) state.items = [];
         } catch (e) {
@@ -547,24 +536,11 @@
                     if (!confirm("Overwrite current JS Code Stock data?")) return;
                     if (Array.isArray(data.items)) state.items = data.items;
                     if (data.config) {
-                        if (Array.isArray(data.config.parents) && data.config.parents.length === 4) {
-                            state.parents = data.config.parents;
-                        }
-                        if (Array.isArray(data.config.children) && data.config.children.length === 4) {
-                            state.children = data.config.children.map((children, parentIndex) => {
-                                const next = Array.isArray(children) ? children.slice(0, 6) : [];
-                                while (next.length < 6) next.push(DEFAULT_CHILDREN[parentIndex][next.length]);
-                                return next;
-                            });
-                        }
-                        if (Array.isArray(data.config.palette) && data.config.palette.length === 8) state.palette = data.config.palette;
-                        if (data.config.filterParent !== undefined) state.filterParent = Math.max(0, Math.min(3, Number(data.config.filterParent) || 0));
-                        if (Array.isArray(data.config.filterChild)) {
-                            state.filterChild = [0, 1, 2, 3].map((i) => {
-                                const v = Number(data.config.filterChild[i]);
-                                return Number.isInteger(v) && v >= 0 && v < 6 ? v : 0;
-                            });
-                        }
+                        if (Array.isArray(data.config.parents)) state.parents = data.config.parents;
+                        if (Array.isArray(data.config.children)) state.children = data.config.children;
+                        if (Array.isArray(data.config.palette)) state.palette = data.config.palette;
+                        if (data.config.filterParent !== undefined) state.filterParent = data.config.filterParent;
+                        if (Array.isArray(data.config.filterChild)) state.filterChild = data.config.filterChild;
                     }
                     saveState(); renderPanel(); setStatus("Import complete");
                 } catch (e) {
