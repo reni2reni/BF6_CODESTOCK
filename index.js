@@ -171,6 +171,7 @@
 #js-code-stock-panel .jcs-child{margin-bottom:4px}
 #js-code-stock-panel .jcs-colors{display:flex;gap:4px;background:transparent;padding:0 0 3px;overflow:visible}
 #js-code-stock-panel .jcs-colors .jcs-tab{flex:none;width:24px;min-width:24px;height:16px;padding:0;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-input-section{margin-bottom:6px}
 #js-code-stock-panel .jcs-input-row{display:flex;gap:4px}
 #js-code-stock-panel .jcs-input-left{width:100%;display:flex;flex-direction:column;gap:3px}
@@ -186,6 +187,7 @@
 #js-code-stock-panel .jcs-filter{padding:0 0 3px;border-bottom:1px solid #333}
 #js-code-stock-panel .jcs-filter-colors{display:flex;gap:4px;background:transparent;padding:0;overflow:visible}
 #js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:none;width:auto;min-width:24px;height:16px;padding:0 6px;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-filter-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-search{height:30px;font-size:18px;margin-top:3px}
 #js-code-stock-panel .jcs-list{flex:1;overflow:auto;margin-top:4px;min-height:0;padding-right:2px}
 #js-code-stock-panel .jcs-item{display:flex;background:#262626;padding:4px;margin-bottom:2px;cursor:pointer;font-size:16px;justify-content:space-between;align-items:center;border:1px solid transparent}
