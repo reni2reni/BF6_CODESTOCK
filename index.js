@@ -27,6 +27,7 @@
         currentColor: 0
     };
     let editingId = null;
+    let inputHidden = false;
     let selectedIds = new Set();
     let internalClipboard = [];
     let clipboardMode = null;
@@ -117,33 +118,55 @@
         const style = document.createElement("style");
         style.id = "js-code-stock-style";
         style.textContent = `
-#js-code-stock-panel{position:fixed;right:22px;top:72px;width:390px;height:calc(100vh - 100px);z-index:2147483646;background:#202020;color:#ddd;border:1px solid #4b4b4b;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.55);font:12px Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+#js-code-stock-panel{position:fixed;right:18px;top:58px;width:400px;height:600px;z-index:2147483646;background:#111;color:#fff;border:1px solid #333;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);font-family:sans-serif;display:flex;flex-direction:column;overflow:hidden;padding:6px}
 #js-code-stock-panel *{box-sizing:border-box}
-#js-code-stock-panel .jcs-head{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#292929;border-bottom:1px solid #444}
-#js-code-stock-panel .jcs-title{font-size:15px;font-weight:bold}
-#js-code-stock-panel button{background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 8px;cursor:pointer}
-#js-code-stock-panel button:hover{background:#3a3a3a}
-#js-code-stock-panel .jcs-tools{display:flex;gap:5px}
-#js-code-stock-panel .jcs-tabs{display:flex;gap:4px;overflow:auto;padding:6px 7px 2px}
-#js-code-stock-panel .jcs-tab{min-width:30px;text-align:center;padding:4px 6px;border:1px solid #4c4c4c;border-radius:4px;cursor:pointer;white-space:nowrap}
-#js-code-stock-panel .jcs-tab.active{background:#4a7bd4;color:#fff}
-#js-code-stock-panel .jcs-colors .jcs-tab{width:24px;min-width:24px;height:16px;padding:0}
-#js-code-stock-panel .jcs-input{padding:7px;border-bottom:1px solid #444}
-#js-code-stock-panel .jcs-input input,#js-code-stock-panel .jcs-input textarea,#js-code-stock-panel .jcs-search{width:100%;background:#292929;color:#eee;border:1px solid #555;border-radius:4px;padding:6px;margin-bottom:5px}
-#js-code-stock-panel .jcs-input textarea{height:100px;resize:vertical;font-family:monospace}
-#js-code-stock-panel .jcs-row{display:flex;gap:5px}
-#js-code-stock-panel .jcs-row>*{flex:1}
-#js-code-stock-panel .jcs-filter{padding:5px 7px;border-bottom:1px solid #444}
-#js-code-stock-panel .jcs-list{flex:1;overflow:auto;padding:6px}
-#js-code-stock-panel .jcs-item{display:grid;grid-template-columns:28px 1fr auto;gap:6px;align-items:center;padding:5px;margin-bottom:4px;background:#292929;border:1px solid #404040;border-radius:4px}
-#js-code-stock-panel .jcs-item.selected{outline:1px solid #4a7bd4}
-#js-code-stock-panel .jcs-drag{font-size:17px;padding:2px;cursor:pointer}
-#js-code-stock-panel .jcs-name{padding:5px;border-left:6px solid #666;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#js-code-stock-panel .jcs-container{display:flex;flex-direction:column;height:100%;padding:0 4px;min-height:0}
+#js-code-stock-panel .jcs-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+#js-code-stock-panel .jcs-title{font-size:18px;text-align:left}
+#js-code-stock-panel .jcs-tools{display:flex;gap:4px;align-items:center}
+#js-code-stock-panel button{background:#333;color:#fff;border:none;border-radius:2px;cursor:pointer}
+#js-code-stock-panel button:hover{background:#3b3b3b}
+#js-code-stock-panel .jcs-tools button{font-size:11px;padding:5px 7px}
+#js-code-stock-panel .jcs-window{font-size:18px;padding:1px 6px}
+#js-code-stock-panel .jcs-tabs{display:flex;gap:0;background:#1f1f1f;padding:2px 12px 0;overflow:hidden}
+#js-code-stock-panel .jcs-tab{flex:1;max-width:240px;height:36px;background:#2d2d2d;color:#9aa0a6;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;position:relative;border:none;border-top-left-radius:4px;border-top-right-radius:4px;border-bottom-left-radius:0;border-bottom-right-radius:0;transform:perspective(40px) rotateX(6deg);transform-origin:bottom;z-index:1;box-shadow:0 2px 0 0 #fff}
+#js-code-stock-panel .jcs-tab:hover{background:#35363a;color:#e8eaed;z-index:2}
+#js-code-stock-panel .jcs-tab.active{background:#35363a;color:#fff;z-index:3;box-shadow:-2px 0 0 0 #fff,2px 0 0 0 #fff,0 -2px 0 0 #fff}
+#js-code-stock-panel .jcs-child{margin-bottom:4px}
+#js-code-stock-panel .jcs-colors{display:flex;gap:4px;background:transparent;padding:0 0 3px;overflow:visible}
+#js-code-stock-panel .jcs-colors .jcs-tab{flex:none;width:24px;min-width:24px;height:16px;padding:0;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-input-section{margin-bottom:6px}
+#js-code-stock-panel .jcs-input-row{display:flex;gap:4px}
+#js-code-stock-panel .jcs-input-left{width:100%;display:flex;flex-direction:column;gap:3px}
+#js-code-stock-panel .jcs-input-wrapper{position:relative;width:100%}
+#js-code-stock-panel .jcs-input-wrapper input,#js-code-stock-panel .jcs-input-wrapper textarea,#js-code-stock-panel .jcs-search{width:100%;box-sizing:border-box;padding:3px;background:#2a2a2a;border:none;color:#fff;border-radius:0}
+#js-code-stock-panel .jcs-input-wrapper input{height:30px;font-size:18px}
+#js-code-stock-panel .jcs-input-wrapper textarea{height:80px;font-size:16px;resize:none;font-family:sans-serif}
+#js-code-stock-panel .jcs-input-right{display:flex;flex-direction:row;gap:4px;justify-content:flex-start;width:50%}
+#js-code-stock-panel .jcs-add,#js-code-stock-panel .jcs-cancel{width:76px;min-width:76px;height:28px}
+#js-code-stock-panel .jcs-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);cursor:pointer;background:#555;color:#fff;border:none;border-radius:3px;width:20px;height:20px;font-size:14px;line-height:18px;z-index:10}
+#js-code-stock-panel .jcs-clear:hover{background:#ad1a1a}
+#js-code-stock-panel #jcs-toggle-input{width:100%;height:30px;background:#444;border:none;color:#fff;cursor:pointer;margin-top:3px;font-size:13px}
+#js-code-stock-panel .jcs-filter{padding:0 0 3px;border-bottom:1px solid #333}
+#js-code-stock-panel .jcs-filter-colors{display:flex;gap:4px;background:transparent;padding:0;overflow:visible}
+#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:none;width:auto;min-width:24px;height:16px;padding:0 6px;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-search{height:30px;font-size:18px;margin-top:3px}
+#js-code-stock-panel .jcs-list{flex:1;overflow:auto;margin-top:4px;min-height:0;padding-right:2px}
+#js-code-stock-panel .jcs-item{display:flex;background:#262626;padding:4px;margin-bottom:2px;cursor:pointer;font-size:16px;justify-content:space-between;align-items:center;border:1px solid transparent}
+#js-code-stock-panel .jcs-item:hover{background:#333}
+#js-code-stock-panel .jcs-item.selected{background:#2a2f3a;border-left:3px solid #4da3ff}
+#js-code-stock-panel .jcs-drag{background:transparent!important;font-size:18px;padding:2px 4px;cursor:pointer}
+#js-code-stock-panel .jcs-name{flex:1;margin-left:6px;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 4px;border-left:6px solid #666}
+#js-code-stock-panel .jcs-name:active{background:#555;transform:scale(.9)}
 #js-code-stock-panel .jcs-actions{display:flex;gap:3px}
-#js-code-stock-panel .jcs-small{font-size:11px;padding:3px 5px}
-#js-code-stock-panel .jcs-foot{padding:5px 8px;border-top:1px solid #444;display:flex;justify-content:space-between;align-items:center}
-#js-code-stock-panel .jcs-status{color:#aaa}
-#js-code-stock-panel .jcs-hidden{display:none}
+#js-code-stock-panel .jcs-actions button{font-size:12px;padding:3px 5px}
+#js-code-stock-panel .jcs-actions button:hover{background:#0984e3}
+#js-code-stock-panel .jcs-foot{padding-top:4px;border-top:1px solid #333;display:flex;justify-content:space-between;align-items:center}
+#js-code-stock-panel .jcs-status{color:#aaa;font-size:11px}
+#js-code-stock-panel .jcs-foot-tools{display:flex;gap:4px}
+#js-code-stock-panel .jcs-small{font-size:11px;padding:4px 6px}
+#js-code-stock-panel .jcs-hidden{display:none!important}
+#js-code-stock-panel input:focus,#js-code-stock-panel textarea:focus{outline:1px solid #4a7bd4}
 `;
         document.head.appendChild(style);
     }
@@ -160,50 +183,42 @@
         if (!panel) return;
         panel.innerHTML = "";
 
+        const container = document.createElement("div");
+        container.className = "jcs-container";
+
         const head = document.createElement("div");
         head.className = "jcs-head";
         const ttl = document.createElement("div");
         ttl.className = "jcs-title";
-        ttl.textContent = "🐛 JS Code Stock";
+        ttl.textContent = "🐛JS Stock";
         const tools = document.createElement("div");
         tools.className = "jcs-tools";
         tools.appendChild(makeButton("EXPORT", exportData));
         tools.appendChild(makeButton("IMPORT", importData));
-        tools.appendChild(makeButton("×", closePanel));
+        const win = makeButton("⮺", openPanel, "jcs-window");
+        tools.appendChild(win);
         head.append(ttl, tools);
 
         const parentTabs = document.createElement("div");
         parentTabs.className = "jcs-tabs";
         state.parents.forEach((name, i) => {
-            const b = makeButton(name, () => {
-                state.filterParent = i;
-                renderPanel();
-            }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
+            const b = makeButton(name, () => { state.filterParent = i; renderPanel(); }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
                 const name2 = prompt("Folder name", state.parents[i]);
-                if (name2 && name2.trim()) {
-                    state.parents[i] = name2.trim();
-                    saveState(); renderPanel();
-                }
+                if (name2 && name2.trim()) { state.parents[i] = name2.trim(); saveState(); renderPanel(); }
             };
             parentTabs.appendChild(b);
         });
 
         const childTabs = document.createElement("div");
-        childTabs.className = "jcs-tabs";
+        childTabs.className = "jcs-tabs jcs-child";
         state.children[state.filterParent].forEach((name, i) => {
-            const b = makeButton(name, () => {
-                state.filterChild[state.filterParent] = i;
-                renderPanel();
-            }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
+            const b = makeButton(name, () => { state.filterChild[state.filterParent] = i; renderPanel(); }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
                 const name2 = prompt("SubFolder name", state.children[state.filterParent][i]);
-                if (name2 && name2.trim()) {
-                    state.children[state.filterParent][i] = name2.trim();
-                    saveState(); renderPanel();
-                }
+                if (name2 && name2.trim()) { state.children[state.filterParent][i] = name2.trim(); saveState(); renderPanel(); }
             };
             childTabs.appendChild(b);
         });
@@ -211,10 +226,7 @@
         const colorTabs = document.createElement("div");
         colorTabs.className = "jcs-tabs jcs-colors";
         state.palette.forEach((c, i) => {
-            const b = makeButton("", () => {
-                state.currentColor = i;
-                renderPanel();
-            }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
+            const b = makeButton("", () => { state.currentColor = i; renderPanel(); }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
             b.style.background = c;
             b.title = "Color " + (i + 1) + " — right click to change";
             b.oncontextmenu = e => {
@@ -227,36 +239,79 @@
             colorTabs.appendChild(b);
         });
 
-        const input = document.createElement("div");
-        input.className = "jcs-input";
-        titleEl = document.createElement("input");
-        titleEl.placeholder = "🏷️ Code name";
-        bodyEl = document.createElement("textarea");
-        bodyEl.placeholder = "📝 Code body";
-        const add = makeButton(hasEditingId() ? "UPDATE" : "ADD", addItem);
-        const cancel = makeButton("CANCEL", cancelEdit);
+        const inputSection = document.createElement("div");
+        inputSection.className = "jcs-input-section";
         const inputRow = document.createElement("div");
-        inputRow.className = "jcs-row";
-        inputRow.append(add, cancel);
-        input.append(titleEl, bodyEl, inputRow);
+        inputRow.className = "jcs-input-row";
+        const inputLeft = document.createElement("div");
+        inputLeft.className = "jcs-input-left";
+
+        const titleWrap = document.createElement("div");
+        titleWrap.className = "jcs-input-wrapper";
+        titleEl = document.createElement("input");
+        titleEl.placeholder = "🏷️Code name";
+        const clearTitle = makeButton("✕", () => { titleEl.value = ""; titleEl.focus(); }, "jcs-clear");
+        titleWrap.append(titleEl, clearTitle);
+
+        const bodyWrap = document.createElement("div");
+        bodyWrap.className = "jcs-input-wrapper";
+        bodyEl = document.createElement("textarea");
+        bodyEl.placeholder = "📝Code body";
+        const clearBody = makeButton("✕", () => { bodyEl.value = ""; bodyEl.focus(); }, "jcs-clear");
+        bodyWrap.append(bodyEl, clearBody);
+
+        const inputRight = document.createElement("div");
+        inputRight.className = "jcs-input-right";
+        inputRight.append(
+            makeButton(hasEditingId() ? "UPDATE" : "ADD", addItem, "jcs-add"),
+            makeButton("CANCEL", cancelEdit, "jcs-cancel")
+        );
+        inputLeft.append(titleWrap, bodyWrap, inputRight);
+        inputRow.appendChild(inputLeft);
+        inputSection.appendChild(inputRow);
+
+        const toggle = makeButton(inputHidden ? "≡ NEW ENTRY ≡" : "≡ CLOSE ≡", () => {
+            inputHidden = !inputHidden;
+            if (inputHidden) editingIdValue = null;
+            renderPanel();
+            if (!inputHidden && titleEl) titleEl.focus();
+        });
+        toggle.id = "jcs-toggle-input";
+        inputSection.appendChild(toggle);
+
+        if (inputHidden) {
+            inputRow.classList.add("jcs-hidden");
+            colorTabs.classList.add("jcs-hidden");
+        } else if (hasEditingId()) {
+            const item = state.items.find(x => x.id === editingIdValue);
+            if (item) {
+                titleEl.value = item.title;
+                bodyEl.value = item.body;
+                titleEl.style.borderLeft = "6px solid " + state.palette[item.color || 0];
+                titleEl.style.paddingLeft = "6px";
+            }
+        } else {
+            titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
+            titleEl.style.paddingLeft = "6px";
+        }
 
         const filter = document.createElement("div");
         filter.className = "jcs-filter";
         const fc = document.createElement("div");
-        fc.className = "jcs-tabs";
+        fc.className = "jcs-tabs jcs-filter-colors";
         const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
+        all.style.flex = "none";
+        all.style.padding = "0 6px";
         fc.appendChild(all);
         state.palette.forEach((c, i) => {
-            const b = makeButton("", () => {
-                state.filterColor = state.filterColor === i ? null : i;
-                renderPanel();
-            }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
-            b.style.background = c; b.style.width = "24px"; b.style.minWidth = "24px"; b.style.height = "16px"; b.style.padding = "0";
+            const b = makeButton("", () => { state.filterColor = state.filterColor === i ? null : i; renderPanel(); }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
+            b.style.background = c;
+            b.style.width = "24px"; b.style.minWidth = "24px"; b.style.height = "16px"; b.style.padding = "0";
             fc.appendChild(b);
         });
         searchEl = document.createElement("input");
         searchEl.className = "jcs-search";
-        searchEl.placeholder = "🔎 search";
+        searchEl.placeholder = "🔎search";
         searchEl.oninput = renderList;
         filter.append(fc, searchEl);
 
@@ -270,22 +325,16 @@
         statusEl.textContent = "Ready";
         foot.appendChild(statusEl);
         const ftools = document.createElement("div");
+        ftools.className = "jcs-foot-tools";
         ftools.append(
             makeButton("PASTE", pasteSelected, "jcs-small"),
-            makeButton("NEW", () => { editingId = null; renderPanel(); titleEl.focus(); }, "jcs-small")
+            makeButton("NEW ENTRY", () => { editingIdValue = null; inputHidden = false; renderPanel(); setTimeout(() => titleEl && titleEl.focus(), 0); }, "jcs-small")
         );
         foot.appendChild(ftools);
 
-        panel.append(head, parentTabs, childTabs, colorTabs, input, filter, listEl, foot);
+        container.append(head, parentTabs, childTabs, colorTabs, inputSection, filter, listEl, foot);
+        panel.appendChild(container);
         renderList();
-
-        if (hasEditingId()) {
-            const item = state.items.find(x => x.id === editingId());
-            if (item) {
-                titleEl.value = item.title;
-                bodyEl.value = item.body;
-            }
-        }
     }
 
     function hasEditingId() { return !!editingIdValue; }
@@ -557,6 +606,7 @@
                 callback: () => {
                     openPanel();
                     editingIdValue = null;
+                    inputHidden = false;
                     renderPanel();
                     setTimeout(() => titleEl && titleEl.focus(), 0);
                 }
