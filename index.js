@@ -428,7 +428,7 @@
                     return { x: p.x, y: p.y };
                 }
             }
-        } catch (_) {}
+        } catch (_) { }
         const metrics = ws.getMetrics ? ws.getMetrics() : {};
         return { x: (metrics.viewLeft || 0) + 50, y: (metrics.viewTop || 0) + 50 };
     }
@@ -470,72 +470,80 @@
     }
 
     // ドラッグ＆ドロップ配置：禁止マークを出さず、マウスカーソルに追従させて確実にドロップ
+    // ドラッグ＆ドロップ配置：Blocklyネイティブのドラッグ機構に引き渡して自動挿入・スナップ結合させる
     function attachDragOutListener(item, nameEl) {
         nameEl.addEventListener("mousedown", (e) => {
             if (e.button !== 0) return;
             if (interactionMode === "blockEntry") return;
 
-            // ブラウザのテキストドラッグ（禁止マーク🚫）を完全に抑止
+            // ブラウザのテキストドラッグ（禁止マーク🚫）を抑止
             e.preventDefault();
 
             const startX = e.clientX, startY = e.clientY;
             let isDragging = false;
-            let createdBlock = null;
-            let ws = null;
 
             const onMouseMove = (moveEvent) => {
+                if (isDragging) return; // 既にBlocklyに引き渡した後は何もしない
+
                 if (!panel) return;
                 const rect = panel.getBoundingClientRect();
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
-                                  moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
+                    moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
                 const dist = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
 
-                // パネル外に出た瞬間にドラッグ配置モードを開始
-                if (!isDragging && (isOutside || dist > 15)) {
+                // パネル外に出た瞬間に発動
+                if (isOutside || dist > 15) {
                     isDragging = true;
-                    ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
-                    if (ws) {
-                        createdBlock = createBlockInstance(ws, item);
-                    }
-                    // CODESTOCK パネルを非表示化
-                    closePanel();
-                }
+                    cleanup(); // 自前のイベント追跡を終了
 
-                // マウスカーソルにブロックをぴったり吸着追従させる
-                if (isDragging && createdBlock && ws) {
+                    const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+                    if (!ws) return;
+
+                    // 1. ブロックインスタンスを生成
+                    const createdBlock = createBlockInstance(ws, item);
+                    if (!createdBlock) return;
+
+                    // 2. CODESTOCKパネルを閉じる
+                    closePanel();
+
+                    // 3. マウスの初期座標へ配置
                     const coords = getWorkspaceCoords(ws, moveEvent);
-                    const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function(x,y){this.x=x;this.y=y;};
+                    const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                     if (typeof createdBlock.moveTo === "function") {
                         createdBlock.moveTo(new Coordinate(coords.x, coords.y));
                     }
-                    if (typeof createdBlock.select === "function") {
-                        createdBlock.select();
+                    if (typeof createdBlock.render === "function") {
+                        createdBlock.render();
+                    }
+
+                    // 4. ★ここが核心：BlocklyネイティブのGesture(ブロックドラッグ)に引き渡す
+                    // これにより、既存ブロックの間や中に入れた際に黄色い挿入マーカーが出てスナップ結合されます
+                    try {
+                        const gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
+                        if (gesture) {
+                            gesture.setStartBlock(createdBlock);
+                            gesture.handleBlockStart(moveEvent, createdBlock);
+                            if (typeof gesture.handleMove === "function") {
+                                gesture.handleMove(moveEvent);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("[JS Code Stock] Gesture start failed:", err);
                     }
                 }
             };
 
-            const onMouseUp = (upEvent) => {
-                document.removeEventListener("mousemove", onMouseMove);
-                document.removeEventListener("mouseup", onMouseUp);
-
-                if (isDragging) {
-                    // ドロップ完了：最終位置に配置して選択
-                    if (createdBlock) {
-                        if (ws) {
-                            const coords = getWorkspaceCoords(ws, upEvent);
-                            const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function(x,y){this.x=x;this.y=y;};
-                            if (typeof createdBlock.moveTo === "function") {
-                                createdBlock.moveTo(new Coordinate(coords.x, coords.y));
-                            }
-                        }
-                        if (typeof createdBlock.render === "function") createdBlock.render();
-                        if (typeof createdBlock.select === "function") createdBlock.select();
-                        if (typeof createdBlock.bumpNeighbours === "function") createdBlock.bumpNeighbours();
-                    }
-                } else {
-                    // パネル内での通常のクリック処理
+            const onMouseUp = () => {
+                cleanup();
+                if (!isDragging) {
+                    // パネル内での通常クリックはクリップボードコピー
                     handleItemClick(item, nameEl);
                 }
+            };
+
+            const cleanup = () => {
+                document.removeEventListener("mousemove", onMouseMove);
+                document.removeEventListener("mouseup", onMouseUp);
             };
 
             document.addEventListener("mousemove", onMouseMove);
@@ -654,7 +662,7 @@
             try {
                 const data = JSON.parse(clipboardData);
                 if (data.type) titleEl.value = data.type;
-            } catch (_) {}
+            } catch (_) { }
         });
         const clearBody = makeButton("✕", () => { bodyEl.value = ""; bodyEl.focus(); }, "jcs-clear");
         bodyWrap.append(bodyEl, clearBody);
@@ -698,7 +706,7 @@
         filter.className = "jcs-filter";
         const fc = document.createElement("div");
         fc.className = "jcs-tabs jcs-filter-colors";
-        
+
         const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
         fc.appendChild(all);
         state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
@@ -1047,7 +1055,7 @@
                             if (!values.includes(val)) b.fields[key] = values[0] || "";
                         }
                         temp.dispose(false);
-                    } catch (_) {}
+                    } catch (_) { }
                 }
             }
         });
@@ -1065,7 +1073,7 @@
                     const xml = Blockly.Xml.blockToDom(block, true);
                     return { _legacyXml: Blockly.Xml.domToText(xml) };
                 }
-            } catch (_) {}
+            } catch (_) { }
             return null;
         }
     }
@@ -1134,19 +1142,19 @@
                 const ctm = canvas.getScreenCTM();
                 if (ctm && typeof ctm.inverse === "function") {
                     const p = pt.matrixTransform(ctm.inverse());
-                    mousePos = {x:p.x,y:p.y};
+                    mousePos = { x: p.x, y: p.y };
                 }
             }
-        } catch (_) {}
+        } catch (_) { }
         if (!mousePos) {
-            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) {}
+            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) { }
         }
         if (!mousePos) {
             const metrics = ws.getMetrics ? ws.getMetrics() : {};
-            mousePos = {x:(metrics.viewLeft||0)+(metrics.viewWidth||0)/2,y:(metrics.viewTop||0)+(metrics.viewHeight||0)/2};
+            mousePos = { x: (metrics.viewLeft || 0) + (metrics.viewWidth || 0) / 2, y: (metrics.viewTop || 0) + (metrics.viewHeight || 0) / 2 };
         }
         const dx = mousePos.x - originalX, dy = mousePos.y - originalY;
-        traverseSerializedBlocks(data, b => { b.x=(b.x||0)+dx; b.y=(b.y||0)+dy; });
+        traverseSerializedBlocks(data, b => { b.x = (b.x || 0) + dx; b.y = (b.y || 0) + dy; });
 
         if (_Blockly.serialization && _Blockly.serialization.blocks && typeof _Blockly.serialization.blocks.append === "function") {
             _Blockly.serialization.blocks.append(data, ws);
@@ -1178,7 +1186,7 @@
             const data = extractBlockForClipboard(block);
             if (!data) throw new Error("Unable to serialize block");
             pendingBlockData = data;
-            copyText(JSON.stringify(data, null, 2)).catch(() => {});
+            copyText(JSON.stringify(data, null, 2)).catch(() => { });
             interactionMode = "blockEntry";
             editingIdValue = null;
             inputHidden = false;
@@ -1264,8 +1272,8 @@
 
     function reorderGroup(parent, child) {
         state.items.filter(x => x.parent === parent && x.child === child)
-            .sort((a,b) => (a.order || 0) - (b.order || 0))
-            .forEach((x,i) => x.order = i);
+            .sort((a, b) => (a.order || 0) - (b.order || 0))
+            .forEach((x, i) => x.order = i);
     }
 
     function exportData() {
@@ -1281,11 +1289,11 @@
         };
         const text = JSON.stringify(data, null, 2);
         copyText(text).then(() => setStatus("Export JSON copied to clipboard"));
-        const blob = new Blob([text], {type:"application/json"});
+        const blob = new Blob([text], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g,"-") + ".json";
+        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
     }
@@ -1451,7 +1459,7 @@
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
             attachMouseTracking(ws);
-        } catch (_) {}
+        } catch (_) { }
     };
 
 })();
