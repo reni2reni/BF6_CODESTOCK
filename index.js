@@ -479,14 +479,18 @@
     function autoConnectBlock(createdBlock) {
         if (!createdBlock || !createdBlock.workspace) return;
         const ws = createdBlock.workspace;
-        const SNAP_RADIUS = 60; // 結合を吸い寄せる判定距離(px)
+        const SNAP_RADIUS = 75; // 吸い付き判定範囲を広げてはめ込みやすく調整
 
+        // 1. ドラッグしたブロック側の接続口
         const myConns = [];
-        if (createdBlock.previousConnection) myConns.push(createdBlock.previousConnection);
         if (createdBlock.outputConnection) myConns.push(createdBlock.outputConnection);
+        if (createdBlock.previousConnection) myConns.push(createdBlock.previousConnection);
         const lastBlock = createdBlock.lastConnectionInStack ? createdBlock.lastConnectionInStack() : createdBlock;
         if (lastBlock && lastBlock.nextConnection) myConns.push(lastBlock.nextConnection);
 
+        if (myConns.length === 0) return;
+
+        // 2. ワークスペース内の接続候補を探す
         let bestDist = SNAP_RADIUS;
         let bestMyConn = null;
         let bestTargetConn = null;
@@ -498,24 +502,46 @@
             const targetConns = [];
             if (other.previousConnection) targetConns.push(other.previousConnection);
             if (other.nextConnection) targetConns.push(other.nextConnection);
+
+            // ブロック内の穴（数値や条件、枠の中など）
             if (other.inputList) {
                 for (const input of other.inputList) {
                     if (input.connection) targetConns.push(input.connection);
                 }
             }
 
+            // 既にデフォルト値（シャドウブロック）が刺さっている穴もターゲットにする
+            if (typeof other.isShadow === "function" && other.isShadow()) {
+                if (other.outputConnection && other.outputConnection.targetConnection) {
+                    targetConns.push(other.outputConnection.targetConnection);
+                }
+            }
+
             for (const myC of myConns) {
                 for (const targetC of targetConns) {
-                    // 接続可能か判定
-                    if (typeof myC.canConnectWithReason_ === "function") {
-                        if (myC.canConnectWithReason_(targetC) !== 0) continue;
-                    } else if (typeof myC.isConnectionAllowed === "function") {
-                        if (!myC.isConnectionAllowed(targetC)) continue;
+                    if (!targetC) continue;
+
+                    // 接続可能か判定（型チェック等）
+                    let canConnect = false;
+                    try {
+                        if (typeof targetC.canConnectWithReason_ === "function") {
+                            const reason = targetC.canConnectWithReason_(myC);
+                            canConnect = (reason === 0 || reason === 1);
+                        } else if (typeof targetC.isConnectionAllowed === "function") {
+                            canConnect = targetC.isConnectionAllowed(myC);
+                        } else {
+                            canConnect = true;
+                        }
+                    } catch (_) {
+                        canConnect = false;
                     }
 
-                    const p1 = myC.x !== undefined ? { x: myC.x, y: myC.y } : (myC.getLocation ? myC.getLocation() : null);
-                    const p2 = targetC.x !== undefined ? { x: targetC.x, y: targetC.y } : (targetC.getLocation ? targetC.getLocation() : null);
-                    if (!p1 || !p2) continue;
+                    if (!canConnect) continue;
+
+                    // 2つの接続口の距離を測定
+                    const p1 = { x: myC.x, y: myC.y };
+                    const p2 = { x: targetC.x, y: targetC.y };
+                    if (p1.x === undefined || p2.x === undefined) continue;
 
                     const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
                     if (dist < bestDist) {
@@ -527,14 +553,21 @@
             }
         }
 
-        // 最寄りの接続口に自動挿入
+        // 3. 最寄りの穴・コネクタに合体・挿入
         if (bestMyConn && bestTargetConn) {
             try {
-                bestMyConn.connect(bestTargetConn);
+                // 親の穴（INPUT_VALUE / NEXT_STATEMENT）から接続してシャドウ値を正しく上書き
+                if (bestTargetConn.type === 1 || bestTargetConn.type === 3) {
+                    bestTargetConn.connect(bestMyConn);
+                } else {
+                    bestMyConn.connect(bestTargetConn);
+                }
+
+                createdBlock.render();
                 const root = createdBlock.getRootBlock();
                 if (root && typeof root.render === "function") root.render();
             } catch (err) {
-                console.warn("[JS Code Stock] autoConnect error:", err);
+                console.warn("[JS Code Stock] autoConnect failed:", err);
             }
         }
     }
@@ -558,7 +591,7 @@
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
                     moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
 
-                // パネルの外へドラッグした瞬間にブロック生成（※CODESTOCKは閉じない）
+                // パネル外へ出た瞬間に生成
                 if (!isDragging && isOutside) {
                     isDragging = true;
                     ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
@@ -567,7 +600,7 @@
                     }
                 }
 
-                // マウスカーソルにブロックをぴったり吸着追従
+                // マウス追従
                 if (isDragging && createdBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
@@ -593,13 +626,13 @@
                         }
                         if (typeof createdBlock.render === "function") createdBlock.render();
 
+                        // ★ 数値の穴やブロック間にパチンとはめ込む
                         autoConnectBlock(createdBlock);
 
                         if (typeof createdBlock.select === "function") createdBlock.select();
-                        if (typeof createdBlock.bumpNeighbours === "function") createdBlock.bumpNeighbours();
+                        // ※ bumpNeighbours（弾き飛ばして逃げる原因）は完全撤廃しました
                     }
 
-                    // ★ 一時展開されていた場合はその場で再び折りたたむ
                     if (isTempExpanded) {
                         isTempExpanded = false;
                         isCollapsed = true;
