@@ -6,14 +6,14 @@
     const STORAGE_KEY = "BF2042Portal_JSCodeStock_v1";
     // Category counts are fixed: 4 parent categories, 6 child categories each.
     const PARENT_COUNT = 4;
-    const CHILD_COUNT = 4;
+    const CHILD_COUNT = 6;
     const COLOR_COUNT = 8;
     const DEFAULT_PARENTS = ["A", "B", "C", "D"];
     const DEFAULT_CHILDREN = [
-        ["A-0", "A-1", "A-2", "A-3", "A-4"],
-        ["B-0", "B-1", "B-2", "B-3", "B-4"],
-        ["C-0", "C-1", "C-2", "C-3", "C-4"],
-        ["D-0", "D-1", "D-2", "D-3", "D-4"]
+        ["A-0", "A-1", "A-2", "A-3", "A-4", "A-5"],
+        ["B-0", "B-1", "B-2", "B-3", "B-4", "B-5"],
+        ["C-0", "C-1", "C-2", "C-3", "C-4", "C-5"],
+        ["D-0", "D-1", "D-2", "D-3", "D-4", "D-5"]
     ];
     const DEFAULT_PALETTE = [
         "#e74c3c", "#f39c12", "#f1c40f", "#2ecc71",
