@@ -826,40 +826,6 @@ function renameSubroutineIfNeeded(ws, data) {
         }
     }
 
-    function handleWorkspaceClick(e) {
-        try {
-            if (!e || e.button !== 0) return;
-            if (panel && panel.style.display !== "none" && panel.contains(e.target)) return;
-            const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
-            if (!ws || !e.target || !e.target.closest) return;
-            const workspaceHit = e.target.closest(".blocklyWorkspace");
-            if (!workspaceHit) return;
-
-            const block = getBlockFromEventTarget(e.target);
-            if (block) {
-                // A block click immediately opens the new-entry form with BF6 Portal JSON.
-                openBlockEntryMode(block);
-                return;
-            }
-
-            // A click on empty workspace immediately opens Code Stock in paste mode.
-            openWorkspacePasteMode();
-        } catch (err) {
-            console.warn("[JS Code Stock] workspace click handler failed", err);
-        }
-    }
-
-    function attachWorkspaceClickHandler(ws) {
-        try {
-            const svg = ws && ws.getParentSvg && ws.getParentSvg();
-            if (!svg || svg._jsCodeStockClickAttached) return;
-            svg._jsCodeStockClickAttached = true;
-            svg.addEventListener("click", handleWorkspaceClick, true);
-        } catch (e) {
-            console.warn("[JS Code Stock] attach click handler failed", e);
-        }
-    }
-
     function addItem() {
         const title = titleEl && titleEl.value.trim();
         const body = bodyEl ? bodyEl.value : "";
@@ -1071,109 +1037,27 @@ function renameSubroutineIfNeeded(ws, data) {
     function registerMenus() {
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
-        const menu = plugin.createMenu(
-            "jsCodeStock",
-            "JS Code Stock",
-            Scope.WORKSPACE
-        );
-        menu.options = [
-            "items.jsCodeStockOpen",
-            "items.jsCodeStockNew",
-            "items.jsCodeStockPaste",
-            "items.jsCodeStockCopy",
-            "items.jsCodeStockCut"
-        ];
-        plugin.registerMenu(menu);
-        _Blockly.ContextMenuRegistry.registry.register(menu);
-
-        const items = [
-            {
-                id: "jsCodeStockOpen",
-                displayText: "Open JS Code Stock",
-                scopeType: Scope.WORKSPACE,
-                weight: 90,
-                preconditionFn: () => "enabled",
-                callback: () => openPanel()
-            },
-            {
-                id: "jsCodeStockNew",
-                displayText: "New Code Stock Entry",
-                scopeType: Scope.WORKSPACE,
-                weight: 91,
-                preconditionFn: () => "enabled",
-                callback: () => {
-                    openPanel();
-                    editingIdValue = null;
-                    inputHidden = false;
-                    renderPanel();
-                    setTimeout(() => titleEl && titleEl.focus(), 0);
-                }
-            },
-            {
-                id: "jsCodeStockPaste",
-                displayText: "Paste Code Stock to Clipboard",
-                scopeType: Scope.WORKSPACE,
-                weight: 92,
-                preconditionFn: () => "enabled",
-                callback: () => openWorkspacePasteMode()
-            },
-            {
-                id: "jsCodeStockCopy",
-                displayText: "Copy Selected Stock",
-                scopeType: Scope.WORKSPACE,
-                weight: 93,
-                preconditionFn: () => selectedIds.size ? "enabled" : "disabled",
-                callback: () => copySelectedToInternal()
-            },
-            {
-                id: "jsCodeStockCut",
-                displayText: "Cut Selected Stock",
-                scopeType: Scope.WORKSPACE,
-                weight: 94,
-                preconditionFn: () => selectedIds.size ? "enabled" : "disabled",
-                callback: () => cutSelectedToInternal()
-            }
-        ];
-        items.forEach(item => plugin.registerItem(item));
-
-        const blockMenu = plugin.createMenu(
-            "jsCodeStockBlock",
-            "JS Code Stock",
-            Scope.BLOCK
-        );
-        blockMenu.options = [
-            "items.jsCodeStockOpenBlock",
-            "items.jsCodeStockSaveBlock"
-        ];
-        plugin.registerMenu(blockMenu);
-        _Blockly.ContextMenuRegistry.registry.register(blockMenu);
-
+        // Direct context-menu entries only. No JS Code Stock submenu/side menu.
+        // Workspace right-click -> JS Code Stock opens paste mode immediately.
         plugin.registerItem({
-            id: "jsCodeStockOpenBlock",
-            displayText: "Open JS Code Stock",
+            id: "jsCodeStockWorkspace",
+            displayText: "JS Code Stock",
+            scopeType: Scope.WORKSPACE,
+            weight: 90,
+            preconditionFn: () => "enabled",
+            callback: () => openWorkspacePasteMode()
+        });
+
+        // Block right-click -> JS Code Stock treats the block as a new entry.
+        plugin.registerItem({
+            id: "jsCodeStockBlock",
+            displayText: "JS Code Stock",
             scopeType: Scope.BLOCK,
             weight: 90,
             preconditionFn: () => "enabled",
             callback: scope => {
                 const blocks = plugin.getSelectedBlocks(scope) || [];
                 if (blocks.length) openBlockEntryMode(blocks[0]);
-                else openPanel();
-            }
-        });
-        plugin.registerItem({
-            id: "jsCodeStockSaveBlock",
-            displayText: "Copy Selected Blocks Info",
-            scopeType: Scope.BLOCK,
-            weight: 91,
-            preconditionFn: () => "enabled",
-            callback: async scope => {
-                try {
-                    const blocks = plugin.getSelectedBlocks(scope) || [];
-                    await copyText(JSON.stringify(blocks, null, 2));
-                    setStatus(blocks.length + " block(s) copied");
-                } catch (e) {
-                    BF2042Portal.Shared.logError("JS Code Stock blocks", String(e));
-                }
             }
         });
     }
@@ -1183,7 +1067,6 @@ function renameSubroutineIfNeeded(ws, data) {
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
             attachMouseTracking(ws);
-            attachWorkspaceClickHandler(ws);
         } catch (_) {}
     };
 
