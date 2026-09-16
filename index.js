@@ -207,9 +207,9 @@
 #js-code-stock-panel .jcs-foot-tools{display:flex;gap:4px}
 #js-code-stock-panel .jcs-hidden{display:none!important}
 #js-code-stock-panel input:focus,#js-code-stock-panel textarea:focus{outline:1px solid #4a7bd4}
-#js-code-stock-panel .jcs-pin{font-size:16px;padding:2px 8px;background:#333}
+#js-code-stock-panel .jcs-pin{font-size:16px;padding:8px 2px;background:#333}
 #js-code-stock-panel .jcs-pin.unlocked{opacity:0.45;filter:grayscale(1)}
-#js-code-stock-panel .jcs-collapse{font-size:16px;padding:2px 8px;background:#333}
+#js-code-stock-panel .jcs-collapse{font-size:16px;padding:8px 2px;background:#333}
 #js-code-stock-panel.collapsed{height:auto!important;min-height:0!important;resize:none}
 `;
         document.head.appendChild(style);
@@ -594,25 +594,26 @@
                 // パネル外へ出た瞬間に発動
                 if (isOutside) {
                     isDragging = true;
-                    cleanup(); // 自前のリスナーを解除して一度解放
+                    cleanup(); // 自前の監視を解除し、Blocklyへ操作権を完全委譲
 
                     const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
                     if (!ws) return;
 
-                    // 1. ブロックをワークスペースに生成して配置
+                    // 1. ブロックインスタンスを生成
                     const createdBlock = createBlockInstance(ws, item);
                     if (!createdBlock) return;
 
+                    // 2. マウス位置へ初期配置して描画
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                     if (typeof createdBlock.moveTo === "function") {
-                        createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
+                        createdBlock.moveTo(new Coordinate(coords.x, coords.y));
                     }
                     if (typeof createdBlock.render === "function") {
                         createdBlock.render();
                     }
 
-                    // 2. パネルの状態制御
+                    // 3. パネルの状態制御（アンロックなら閉じる / 一時展開なら折りたたみ）
                     if (isTempExpanded) {
                         isTempExpanded = false;
                         isCollapsed = true;
@@ -621,66 +622,36 @@
                         closePanel();
                     }
 
-                    // 3. ★ここが核心：描画完了を待って（80ms）、システムで確実に掴み直す！
-                    setTimeout(() => {
-                        if (!createdBlock || createdBlock.disposed) return;
-                        const svg = createdBlock.getSvgRoot && createdBlock.getSvgRoot();
-                        if (!svg) return;
+                    // 4. ★ここが核心：Blocklyに「掴み直した」と認識させ、通常ドラッグ（隙間空き・挿入プレビュー）を強制起動！
+                    try {
+                        const gesture = ws.getGesture ? ws.getGesture(moveEvent) : null;
+                        if (gesture) {
+                            gesture.setStartBlock(createdBlock);
+                            gesture.handleBlockStart(moveEvent, createdBlock);
 
-                        // 描画されたブロックの正確な画面座標を取得
-                        const blockRect = svg.getBoundingClientRect();
-                        const grabX = blockRect.left + 20;
-                        const grabY = blockRect.top + 15;
-
-                        const fakeEvent = {
-                            clientX: grabX,
-                            clientY: grabY,
-                            screenX: grabX,
-                            screenY: grabY,
-                            button: 0,
-                            buttons: 1,
-                            pointerId: 1,
-                            pointerType: "mouse",
-                            target: svg,
-                            type: "pointerdown",
-                            preventDefault: () => { },
-                            stopPropagation: () => { }
-                        };
-
-                        try {
-                            // 前回のクリック状態が残っていればキャンセルしてリセット
-                            if (ws.currentGesture_) {
-                                ws.currentGesture_.cancel();
+                            // ドラッグ状態（ブロック間を空ける・穴のハイライトプレビュー）へ即時移行
+                            if (typeof gesture.startDraggingBlock === "function") {
+                                gesture.startDraggingBlock();
+                            } else if (typeof gesture.startDraggingBlock_ === "function") {
+                                gesture.startDraggingBlock_();
                             }
-
-                            // BlocklyのGestureを開始してドラッグ状態へ
-                            const gesture = ws.getGesture ? ws.getGesture(fakeEvent) : null;
-                            if (gesture) {
-                                gesture.setStartBlock(createdBlock);
-                                gesture.handleBlockStart(fakeEvent, createdBlock);
-
-                                if (typeof gesture.startDraggingBlock === "function") {
-                                    gesture.startDraggingBlock();
-                                } else if (typeof gesture.startDraggingBlock_ === "function") {
-                                    gesture.startDraggingBlock_();
-                                }
+                        } else {
+                            // フォールバック：ブロックSVGへ直接イベントを送って掴ませる
+                            const svg = createdBlock.getSvgRoot && createdBlock.getSvgRoot();
+                            if (svg) {
+                                svg.dispatchEvent(new MouseEvent("mousedown", {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    view: window,
+                                    clientX: moveEvent.clientX,
+                                    clientY: moveEvent.clientY,
+                                    buttons: 1
+                                }));
                             }
-
-                            // ブロックSVGへもイベントを直接発火して確実に掴ませる
-                            svg.dispatchEvent(new PointerEvent("pointerdown", {
-                                bubbles: true,
-                                cancelable: true,
-                                view: window,
-                                clientX: grabX,
-                                clientY: grabY,
-                                button: 0,
-                                buttons: 1,
-                                pointerId: 1
-                            }));
-                        } catch (err) {
-                            console.warn("[JS Code Stock] Re-grab failed:", err);
                         }
-                    }, 80);
+                    } catch (err) {
+                        console.warn("[JS Code Stock] Gesture start failed:", err);
+                    }
                 }
             };
 
