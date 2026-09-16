@@ -41,6 +41,12 @@
     let titleEl = null;
     let bodyEl = null;
     let statusEl = null;
+    // Interaction modes:
+    // workspacePaste = blank-area click -> choose stock -> paste into workspace
+    // blockEntry = block click -> copy serialized block -> new-entry form
+    let interactionMode = "normal";
+    let pendingBlockData = null;
+    let lastMouseEvent = null;
 
     function cloneDefault() {
         return {
@@ -108,6 +114,17 @@
         if (statusEl) statusEl.textContent = text;
     }
 
+    function attachMouseTracking(ws) {
+        try {
+            const svg = ws && ws.getParentSvg && ws.getParentSvg();
+            if (!svg || svg._jsCodeStockMouseTrackingAttached) return;
+            svg._jsCodeStockMouseTrackingAttached = true;
+            svg.addEventListener("mousemove", e => { lastMouseEvent = e; }, { passive: true });
+        } catch (e) {
+            console.warn("[JS Code Stock] mouse tracking failed:", e);
+        }
+    }
+
     function copyText(text) {
         if (BF2042Portal.Shared && BF2042Portal.Shared.copyTextToClipboard) {
             return Promise.resolve(BF2042Portal.Shared.copyTextToClipboard(text));
@@ -143,6 +160,8 @@
 #js-code-stock-panel button:hover{background:#3b3b3b}
 #js-code-stock-panel .jcs-tools button{font-size:11px;padding:5px 7px}
 #js-code-stock-panel .jcs-window{font-size:18px;padding:1px 6px}
+#js-code-stock-panel .jcs-close{font-size:18px;padding:1px 6px;background:#7a2020}
+#js-code-stock-panel .jcs-close:hover{background:#a52a2a}
 #js-code-stock-panel .jcs-tabs{display:flex;gap:0;background:#1f1f1f;padding:2px 12px 0;overflow:hidden}
 #js-code-stock-panel .jcs-tab{flex:1;max-width:240px;height:36px;background:#2d2d2d;color:#9aa0a6;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;position:relative;border:none;border-top-left-radius:4px;border-top-right-radius:4px;border-bottom-left-radius:0;border-bottom-right-radius:0;transform:perspective(40px) rotateX(6deg);transform-origin:bottom;z-index:1;box-shadow:0 2px 0 0 #fff}
 #js-code-stock-panel .jcs-tab:hover{background:#35363a;color:#e8eaed;z-index:2}
@@ -212,6 +231,9 @@
         tools.appendChild(makeButton("IMPORT", importData));
         const win = makeButton("⮺", openPanel, "jcs-window");
         tools.appendChild(win);
+        const close = makeButton("✕", closePanel, "jcs-close");
+        close.title = "Close";
+        tools.appendChild(close);
         head.append(ttl, tools);
 
         const parentTabs = document.createElement("div");
@@ -379,11 +401,18 @@
             name.className = "jcs-name";
             name.style.borderLeftColor = state.palette[item.color || 0];
             name.textContent = item.title;
-            name.title = "Click to copy code";
-            name.onclick = () => {
-                copyText(item.body).then(() => setStatus("COPY OK!")).catch(e => setStatus(String(e)));
+            name.title = interactionMode === "workspacePaste" ? "Click to paste this code into the workspace" : "Click to copy code";
+            name.onclick = async () => {
+                if (interactionMode === "workspacePaste") {
+                    await pasteSerializedStock(item.body);
+                    closePanel();
+                    interactionMode = "normal";
+                    pendingBlockData = null;
+                } else {
+                    copyText(item.body).then(() => setStatus("COPY OK!")).catch(e => setStatus(String(e)));
+                }
             };
-            name.ondblclick = () => editItem(item);
+            if (interactionMode !== "workspacePaste") name.ondblclick = () => editItem(item);
             const actions = document.createElement("div");
             actions.className = "jcs-actions";
             actions.append(
@@ -401,6 +430,433 @@
             empty.style.color = "#888";
             empty.textContent = "No snippets";
             listEl.appendChild(empty);
+        }
+    }
+
+  function extractVariableDefinitions(serializedRoot) {
+    const varsById = new Map();
+    traverseSerializedBlocks(serializedRoot, (b) => {
+      if (b.fields && b.fields.VAR) {
+        const raw = b.fields.VAR;
+        let id = null,
+          name = null,
+          type = "";
+        if (raw && typeof raw === "object") {
+          id = raw.id || null;
+          name = raw.name || null;
+          type = raw.type || "";
+        } else if (typeof raw === "string") {
+          // Some serialized forms store only the name
+          id = null;
+          name = raw;
+          type = "";
+        }
+        // also check extraState.isObjectVar if present
+        const isObjectVar = !!(b.extraState && b.extraState.isObjectVar);
+        if (name) {
+          const key = id || name + "::" + type;
+          if (!varsById.has(key)) {
+            varsById.set(key, { id: id, name: name, type: type, isObjectVar: isObjectVar });
+          }
+        }
+      }
+    });
+    return Array.from(varsById.values());
+  }
+
+  /* ---------------------------
+     Register/create variables in the workspace BEFORE block creation.
+     Attempts multiple varMap/workspace APIs and prefers creating variable
+     with the original id where possible.
+  ---------------------------- */
+  function registerVariablesBeforePaste(ws, varDefs) {
+    try {
+      const varMap = ws.getVariableMap ? ws.getVariableMap() : null;
+
+      for (const v of varDefs) {
+        try {
+          // Try find existing by id first
+          let existing = null;
+          if (varMap && typeof varMap.getVariable === "function") {
+            // some variants accept id or name; try both defensively
+            try {
+              existing = varMap.getVariable(v.id);
+            } catch (e) {
+              existing = null;
+            }
+          }
+          // varMap.getVariableById?
+          if (!existing && varMap && typeof varMap.getVariableById === "function") {
+            try {
+              existing = varMap.getVariableById(v.id);
+            } catch (e) {
+              existing = null;
+            }
+          }
+          // try by name
+          if (!existing && varMap && typeof varMap.getVariableByName === "function") {
+            try {
+              existing = varMap.getVariableByName(v.name);
+            } catch (e) {
+              existing = null;
+            }
+          }
+          if (!existing && varMap && typeof varMap.getVariable === "function") {
+            // some builds use getVariable(name)
+            try {
+              existing = varMap.getVariable(v.name);
+            } catch (e) {
+              existing = null;
+            }
+          }
+
+          // If a variable with the exact id exists, ensure type matches (do not change)
+          if (existing) {
+            // If existing type differs and name differs, don't overwrite — preserved workspace variable wins.
+            // We only create if missing.
+            continue;
+          }
+
+          // Create variable using the best API available. Try to keep id when possible.
+          let created = null;
+          if (varMap && typeof varMap.createVariable === "function") {
+            try {
+              // createVariable(name, type, id) is supported by some Blockly versions
+              created = varMap.createVariable(v.name, v.type || "", v.id);
+            } catch (e) {
+              try {
+                created = varMap.createVariable(v.name, v.type || "", undefined);
+              } catch (e2) {
+                created = null;
+              }
+            }
+          }
+          if (!created && typeof ws.createVariable === "function") {
+            try {
+              created = ws.createVariable(v.name, v.type || "", v.id);
+            } catch (e) {
+              try {
+                created = ws.createVariable(v.name, v.type || "", undefined);
+              } catch (ee) {
+                created = null;
+              }
+            }
+          }
+
+          // As a last resort, try Blockly global API if present
+          if (!created && typeof Blockly !== "undefined" && typeof Blockly.Variables !== "undefined") {
+            try {
+              // Some builds provide Blockly.Variables.createVariable
+              if (typeof Blockly.Variables.createVariable === "function") {
+                created = Blockly.Variables.createVariable(ws, v.name, v.type || "", v.id);
+              }
+            } catch (e) {
+              created = null;
+            }
+          }
+        } catch (inner) {
+          // ignore per-variable creation errors
+          console.warn("[CopyPastePlugin] registerVariablesBeforePaste error for", v, inner);
+        }
+      }
+    } catch (err) {
+      console.warn("[CopyPastePlugin] registerVariablesBeforePaste failed:", err);
+    }
+  }
+
+  function ensureVariableExists(ws, name, type) {
+    try {
+      const varMap = ws.getVariableMap();
+      if (!varMap) return null;
+
+      let existing = null;
+      try {
+        existing = varMap.getVariable(name);
+      } catch (e) {
+        existing = null;
+      }
+      if (!existing && typeof varMap.getVariableByName === "function") {
+        try {
+          existing = varMap.getVariableByName(name);
+        } catch (e) {
+          existing = null;
+        }
+      }
+
+      if (!existing) {
+        if (typeof varMap.createVariable === "function") {
+          return varMap.createVariable(name, type || "", undefined);
+        }
+        if (typeof ws.createVariable === "function") {
+          return ws.createVariable(name, type || "", undefined);
+        }
+      }
+      return existing;
+    } catch (e) {
+      console.warn("[CopyPastePlugin] ensureVariableExists error:", e);
+      return null;
+    }
+  }
+
+  function traverseSerializedBlocks(node, cb) {
+    if (!node) return;
+    cb(node);
+    if (node.inputs && typeof node.inputs === "object") {
+      for (const input of Object.values(node.inputs)) {
+        if (input && input.block) traverseSerializedBlocks(input.block, cb);
+        if (input && input.shadow) traverseSerializedBlocks(input.shadow, cb);
+      }
+    }
+    if (node.next && node.next.block) traverseSerializedBlocks(node.next.block, cb);
+  }
+
+  /* Fixed sanitizer: skip variableReferenceBlock and subroutineArgumentBlock */
+  function sanitizeForWorkspace(ws, root) {
+    traverseSerializedBlocks(root, (b) => {
+      if (b.type === "variableReferenceBlock") return;
+      if (b.type === "subroutineArgumentBlock") return;
+
+      if (b.fields) {
+        for (const [key, val] of Object.entries(b.fields)) {
+          const ku = key.toUpperCase();
+          if (ku === "VAR" || ku === "VARIABLE" || ku.startsWith("VAR")) {
+            let varName = val;
+            if (val && typeof val === "object" && val.name) varName = val.name;
+            if (typeof varName === "string" && varName.length > 0) {
+              ensureVariableExists(ws, varName, val?.type || "");
+            }
+          }
+        }
+      }
+
+      if (b.fields) {
+        for (const [key, val] of Object.entries(b.fields)) {
+          if (typeof val !== "string") continue;
+          try {
+            const temp = ws.newBlock(b.type);
+            const field = temp.getField(key);
+            if (field && typeof field.getOptions === "function") {
+              const opts = field.getOptions();
+              const values = opts.map((o) => o[1]);
+              if (!values.includes(val)) b.fields[key] = values[0] || "";
+            }
+            temp.dispose(false);
+          } catch {}
+        }
+      }
+    });
+
+    return root;
+  }
+
+
+    function extractBlockForClipboard(block) {
+        try {
+            const full = _Blockly.serialization.blocks.save(block);
+            if (full && full.next) delete full.next;
+            return full;
+        } catch (e) {
+            try {
+                if (typeof Blockly !== "undefined" && Blockly.Xml) {
+                    const xml = Blockly.Xml.blockToDom(block, true);
+                    return { _legacyXml: Blockly.Xml.domToText(xml) };
+                }
+            } catch (_) {}
+            return null;
+        }
+    }
+
+    function getBlockFromEventTarget(target) {
+        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+        if (!ws || !target || !target.closest) return null;
+        const el = target.closest(".blocklyDraggable");
+        if (!el) return null;
+        const id = el.getAttribute("data-id") || el.getAttribute("data-block-id");
+        if (id && typeof ws.getBlockById === "function") {
+            const b = ws.getBlockById(id);
+            if (b) return b;
+        }
+        try {
+            const selected = plugin.getSelectedBlocks({}) || [];
+            return selected.length === 1 ? selected[0] : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    async function copyBlockDataToPending(block) {
+        const data = extractBlockForClipboard(block);
+        if (!data) throw new Error("Unable to serialize block");
+        pendingBlockData = data;
+        await copyText(JSON.stringify(data, null, 2));
+    }
+
+function renameSubroutineIfNeeded(ws, data) {
+  try {
+    if (!data || data.type !== "subroutineBlock") return data;
+
+    const originalName =
+      data.extraState?.subroutineName ||
+      data.fields?.SUBROUTINE_NAME;
+
+    if (!originalName) return data;
+
+    // Collect existing names
+    const existingNames = new Set();
+
+    const allBlocks = ws.getAllBlocks(false);
+    for (const b of allBlocks) {
+      if (b.type === "subroutineBlock") {
+        const name =
+          (b.extraState && b.extraState.subroutineName) ||
+          (b.getField && b.getField("SUBROUTINE_NAME")?.getValue());
+        if (name) existingNames.add(name);
+      }
+    }
+
+    if (!existingNames.has(originalName)) return data;
+
+    // Generate new unique name
+    let i = 1;
+    let newName = originalName + i;
+    while (existingNames.has(newName)) {
+      i++;
+      newName = originalName + i;
+    }
+
+    // Apply new name to the subroutine
+    if (data.extraState) data.extraState.subroutineName = newName;
+    if (data.fields) data.fields.SUBROUTINE_NAME = newName;
+
+    // Also rewrite ANY reference to the subroutine name inside inputs
+    traverseSerializedBlocks(data, (b) => {
+      if (b.fields && b.fields.SUBROUTINE_NAME === originalName) {
+        b.fields.SUBROUTINE_NAME = newName;
+      }
+    });
+
+    return data;
+  } catch (err) {
+    console.warn("[CopyPastePlugin] renameSubroutineIfNeeded failed:", err);
+    return data;
+  }
+}
+
+
+
+    async function pasteSerializedStock(text) {
+        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+        if (!ws) throw new Error("No workspace available");
+        let data;
+        try { data = JSON.parse(text); }
+        catch (_) { throw new Error("Code Stock entry is not valid JSON"); }
+
+        const varDefs = extractVariableDefinitions(data);
+        if (varDefs.length > 0) registerVariablesBeforePaste(ws, varDefs);
+        data = renameSubroutineIfNeeded(ws, data);
+        data = sanitizeForWorkspace(ws, data);
+
+        const originalX = typeof data.x === "number" ? data.x : ((data.blocks && data.blocks[0] && data.blocks[0].x) || 0);
+        const originalY = typeof data.y === "number" ? data.y : ((data.blocks && data.blocks[0] && data.blocks[0].y) || 0);
+        let mousePos = null;
+        try {
+            let canvas = typeof ws.getCanvas === "function" ? ws.getCanvas() : null;
+            if (!canvas) canvas = document.querySelector(".blocklyBlockCanvas");
+            if (lastMouseEvent && canvas && canvas.ownerSVGElement && typeof canvas.getScreenCTM === "function") {
+                const pt = canvas.ownerSVGElement.createSVGPoint();
+                pt.x = lastMouseEvent.clientX; pt.y = lastMouseEvent.clientY;
+                const ctm = canvas.getScreenCTM();
+                if (ctm && typeof ctm.inverse === "function") {
+                    const p = pt.matrixTransform(ctm.inverse());
+                    mousePos = {x:p.x,y:p.y};
+                }
+            }
+        } catch (_) {}
+        if (!mousePos) {
+            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) {}
+        }
+        if (!mousePos) {
+            const metrics = ws.getMetrics ? ws.getMetrics() : {};
+            mousePos = {x:(metrics.viewLeft||0)+(metrics.viewWidth||0)/2,y:(metrics.viewTop||0)+(metrics.viewHeight||0)/2};
+        }
+        const dx = mousePos.x - originalX, dy = mousePos.y - originalY;
+        traverseSerializedBlocks(data, b => { b.x=(b.x||0)+dx; b.y=(b.y||0)+dy; });
+
+        if (_Blockly.serialization && _Blockly.serialization.blocks && typeof _Blockly.serialization.blocks.append === "function") {
+            _Blockly.serialization.blocks.append(data, ws);
+        } else if (data._legacyXml && typeof Blockly !== "undefined" && Blockly.Xml) {
+            const dom = Blockly.Xml.textToDom(data._legacyXml);
+            Blockly.Xml.domToWorkspace(dom, ws);
+        } else throw new Error("No compatible Blockly paste API");
+    }
+
+    function blockTypeName(data) {
+        if (!data) return "Code";
+        if (data.type) return String(data.type);
+        return "Code";
+    }
+
+    function openWorkspacePasteMode() {
+        interactionMode = "workspacePaste";
+        editingIdValue = null;
+        inputHidden = true;
+        openPanel();
+        renderPanel();
+        setStatus("Select a code entry to paste");
+    }
+
+    function openBlockEntryMode(block) {
+        try {
+            const data = extractBlockForClipboard(block);
+            if (!data) throw new Error("Unable to serialize block");
+            pendingBlockData = data;
+            // Mirror BF6 Portal Copy: serialized block JSON is also placed on the system clipboard.
+            copyText(JSON.stringify(data, null, 2)).catch(() => {});
+            interactionMode = "blockEntry";
+            editingIdValue = null;
+            inputHidden = false;
+            openPanel();
+            renderPanel();
+            titleEl.value = blockTypeName(data);
+            bodyEl.value = JSON.stringify(data, null, 2);
+            setStatus("Block copied — ADD to save, CANCEL to close");
+            setTimeout(() => titleEl && titleEl.focus(), 0);
+        } catch (e) {
+            BF2042Portal.Shared.logError("JS Code Stock block entry", String(e));
+        }
+    }
+
+    function handleWorkspaceClick(e) {
+        try {
+            if (!e || e.button !== 0) return;
+            if (panel && panel.style.display !== "none" && panel.contains(e.target)) return;
+            const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+            if (!ws || !e.target || !e.target.closest) return;
+            const workspaceHit = e.target.closest(".blocklyWorkspace");
+            if (!workspaceHit) return;
+
+            const block = getBlockFromEventTarget(e.target);
+            if (block) {
+                // A block click immediately opens the new-entry form with BF6 Portal JSON.
+                openBlockEntryMode(block);
+                return;
+            }
+
+            // A click on empty workspace immediately opens Code Stock in paste mode.
+            openWorkspacePasteMode();
+        } catch (err) {
+            console.warn("[JS Code Stock] workspace click handler failed", err);
+        }
+    }
+
+    function attachWorkspaceClickHandler(ws) {
+        try {
+            const svg = ws && ws.getParentSvg && ws.getParentSvg();
+            if (!svg || svg._jsCodeStockClickAttached) return;
+            svg._jsCodeStockClickAttached = true;
+            svg.addEventListener("click", handleWorkspaceClick, true);
+        } catch (e) {
+            console.warn("[JS Code Stock] attach click handler failed", e);
         }
     }
 
@@ -431,6 +887,12 @@
         }
         editingIdValue = null;
         saveState();
+        if (interactionMode === "blockEntry") {
+            closePanel();
+            interactionMode = "normal";
+            pendingBlockData = null;
+            return;
+        }
         renderPanel();
     }
 
@@ -455,6 +917,12 @@
         editingIdValue = null;
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
+        if (interactionMode === "blockEntry") {
+            closePanel();
+            interactionMode = "normal";
+            pendingBlockData = null;
+            return;
+        }
         renderPanel();
     }
 
@@ -596,6 +1064,8 @@
 
     function closePanel() {
         if (panel) panel.style.display = "none";
+        interactionMode = "normal";
+        pendingBlockData = null;
     }
 
     function registerMenus() {
@@ -645,23 +1115,7 @@
                 scopeType: Scope.WORKSPACE,
                 weight: 92,
                 preconditionFn: () => "enabled",
-                callback: async () => {
-                    try {
-                        const text = await pasteText();
-                        if (text) {
-                            openPanel();
-                            bodyEl.value = text;
-                            if (!titleEl.value.trim()) {
-                                try {
-                                    const parsed = JSON.parse(text);
-                                    if (parsed.type) titleEl.value = parsed.type;
-                                } catch (_) {}
-                            }
-                        }
-                    } catch (e) {
-                        BF2042Portal.Shared.logError("JS Code Stock", String(e));
-                    }
-                }
+                callback: () => openWorkspacePasteMode()
             },
             {
                 id: "jsCodeStockCopy",
@@ -700,7 +1154,11 @@
             scopeType: Scope.BLOCK,
             weight: 90,
             preconditionFn: () => "enabled",
-            callback: () => openPanel()
+            callback: scope => {
+                const blocks = plugin.getSelectedBlocks(scope) || [];
+                if (blocks.length) openBlockEntryMode(blocks[0]);
+                else openPanel();
+            }
         });
         plugin.registerItem({
             id: "jsCodeStockSaveBlock",
@@ -722,9 +1180,11 @@
 
     plugin.initializeWorkspace = function () {
         loadState();
-        if (!document.getElementById("js-code-stock-panel")) {
-            // UI is intentionally lazy; only the menu is installed on workspace initialization.
-        }
+        try {
+            const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+            attachMouseTracking(ws);
+            attachWorkspaceClickHandler(ws);
+        } catch (_) {}
     };
 
     registerMenus();
