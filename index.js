@@ -745,257 +745,7 @@
         }
     }
 
-    // 色の距離（RGB）を計算して8色パレットから一番近い色番号を自動判定
-    function getClosestColorIndex(hexColor) {
-        if (!hexColor) return 0;
-        let c = hexColor.replace("#", "");
-        if (c.length === 3) c = c.split("").map(x => x + x).join("");
-        const num = parseInt(c, 16);
-        if (isNaN(num)) return 0;
-        const r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
-
-        let bestIdx = 0;
-        let minDiff = Infinity;
-        state.palette.forEach((palHex, idx) => {
-            let p = palHex.replace("#", "");
-            if (p.length === 3) p = p.split("").map(x => x + x).join("");
-            const pNum = parseInt(p, 16);
-            const pr = (pNum >> 16) & 255, pg = (pNum >> 8) & 255, pb = pNum & 255;
-            const diff = Math.hypot(r - pr, g - pg, b - pb);
-            if (diff < minDiff) {
-                minDiff = diff;
-                bestIdx = idx;
-            }
-        });
-        return bestIdx;
-    }
-
-    // PORTAL Blocks の自動抽出＆CodeStockへの取り込み処理
-    const PORTAL_BLOCK_CATALOG = [
-        {
-            name: "Rules & Events",
-            color: "#e74c3c", // 赤
-            blocks: [
-                "ruleBlock", "conditionBlock", "actionsBlock",
-                "OnPlayerJoin", "OnPlayerLeave", "OnPlayerDeployed", "OnPlayerDied",
-                "OnPlayerEarnedKill", "OnMandown", "OnRevived", "OnTimeLimitReached",
-                "OnGameModeStarted", "OnVehicleSpawned", "OnCapturePointCaptured", "EventPlayer", "EventOtherPlayer"
-            ]
-        },
-        {
-            name: "Player Actions",
-            color: "#3498db", // 青
-            blocks: [
-                "SetPlayerHealth", "Kill", "Teleport", "SetPlayerInventory",
-                "SetPlayerSpeed", "SetPlayerAmmo", "SetScore", "EnableInput",
-                "ApplyDamage", "Resupply", "ForceRevive", "SetPlayerVehicle",
-                "SetPlayerCamera", "SpotPlayer", "SetPlayerMaxHealth"
-            ]
-        },
-        {
-            name: "World Actions",
-            color: "#2ecc71", // 緑
-            blocks: [
-                "PauseRule", "UnpauseRule", "SkipToRule", "SetTeamScore",
-                "EndGameMode", "SpawnVehicle", "DestroyVehicle", "SetCapturePointState",
-                "DisplayMessage", "SetVariable", "ResetVariable", "SetMatchTime"
-            ]
-        },
-        {
-            name: "Logic & Branch",
-            color: "#f39c12", // オレンジ
-            blocks: [
-                "If", "While", "Compare", "Equals", "NotEquals",
-                "GreaterThan", "LessThan", "GreaterThanOrEqual", "LessThanOrEqual",
-                "And", "Or", "Not", "True", "False", "Null"
-            ]
-        },
-        {
-            name: "Math & Numbers",
-            color: "#9b59b6", // 紫
-            blocks: [
-                "MathNumber", "Add", "Subtract", "Multiply", "Divide",
-                "Modulo", "Absolute", "Min", "Max", "Round", "Floor",
-                "Ceil", "Sqrt", "Power", "RandomReal", "RandomInteger",
-                "Sin", "Cos", "PI"
-            ]
-        },
-        {
-            name: "Vectors & Arrays",
-            color: "#f1c40f", // 黄
-            blocks: [
-                "CreateVector", "VectorX", "VectorY", "VectorZ", "DistanceBetween",
-                "VectorAdd", "VectorSubtract", "VectorMultiply", "DotProduct", "CrossProduct",
-                "CreateArray", "AppendToArray", "RemoveFromArray", "ArraySlice",
-                "FirstOf", "LastOf", "ArrayLength", "IndexOf"
-            ]
-        },
-        {
-            name: "Player Query",
-            color: "#3498db", // 水色
-            blocks: [
-                "GetPlayers", "GetPlayerState", "GetPlayerHealth", "GetPlayerTeam",
-                "GetPlayerPosition", "GetPlayerVehicle", "IsAlive", "IsManDown",
-                "IsInVehicle", "IsPlayerAiming", "GetPlayerSpeed", "GetPlayerName"
-            ]
-        },
-        {
-            name: "Game Query",
-            color: "#666666", // グレー
-            blocks: [
-                "GetTeamScore", "GetCurrentGameMode", "GetRemainingGameTime", "GetTargetScore",
-                "GetCapturePointOwner", "AllPlayers", "GetVehicleState", "CountOf"
-            ]
-        }
-    ];
-
-    // PORTAL Blocks の確実な抽出＆CodeStockへの取り込み処理
-    function importPortalBlocks() {
-        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
-        if (!ws) {
-            alert("ワークスペースが見つかりません。エディタ上で実行してください。");
-            return;
-        }
-
-        if (!confirm("指定のカテゴリ構成（OTHER, Blocks1, Blocks2, element1, element2, element3）でPORTALブロックを取り込みますか？\n※カテゴリタブが再構成され、各部品が色別で取り込まれます。")) {
-            return;
-        }
-
-        setStatus("Blocks仕分け取り込み中...");
-
-        // パレットカラーのインデックス定義
-        // 0:赤, 1:オレンジ, 2:黄色, 3:緑, 4:青, 5:紫(赤紫/青紫), 6:グレー, 7:白
-        const COLOR_PURPLE_RED = 5; // 赤紫
-        const COLOR_ORANGE = 1; // オレンジ
-        const COLOR_BLUE_PURPLE = 4; // 青紫 (Blue/Purple)
-        const COLOR_YELLOW = 2; // 黄色
-        const COLOR_GREEN = 3; // 緑
-
-        // 指定の6大親カテゴリと子カテゴリ・色のマスタ定義
-        const CUSTOM_PORTAL_STRUCTURE = [
-            {
-                parentName: "OTHER",
-                children: [
-                    { name: "RULES", color: COLOR_PURPLE_RED, blocks: ["ruleBlock", "conditionBlock", "actionsBlock", "ongoingGlobal", "ongoingEachPlayer"] },
-                    { name: "SUBROUTINES", color: COLOR_ORANGE, blocks: ["subroutineBlock", "subroutineArgumentBlock", "subroutineCallBlock"] },
-                    { name: "CONTROL ACTIONS", color: COLOR_BLUE_PURPLE, blocks: ["PauseRule", "UnpauseRule", "SkipToRule", "Break", "Continue", "Return", "Wait", "Abort", "AbortIf"] }
-                ]
-            },
-            {
-                parentName: "Blocks1",
-                children: [
-                    { name: "AI", color: COLOR_YELLOW, blocks: ["SpawnAIPawn", "SetAIPawnTarget", "DestroyAIPawn", "SetAIMoveSpeed", "SetAIEngagementDistance"] },
-                    { name: "ARRAYS", color: COLOR_YELLOW, blocks: ["AppendToArray", "RemoveFromArray", "SetArrayElement", "SortArray", "RandomizeArray", "ReverseArray"] },
-                    { name: "AUDIO", color: COLOR_YELLOW, blocks: ["PlayAudio", "StopAudio", "PlaySoundAtPosition", "SetAudioVolume"] },
-                    { name: "CAMERA", color: COLOR_YELLOW, blocks: ["SetCameraMode", "SetCameraPosition", "SetCameraRotation", "ResetCamera"] },
-                    { name: "EFFECTS", color: COLOR_YELLOW, blocks: ["SpawnParticleEffect", "DestroyEffect", "PlayVFX", "SetEffectParameters"] },
-                    { name: "EMPLACEMENTS", color: COLOR_YELLOW, blocks: ["SpawnEmplacement", "DestroyEmplacement", "SetEmplacementOwner"] },
-                    { name: "GAMEPLAY", color: COLOR_YELLOW, blocks: ["SetTeamScore", "EndGameMode", "SetMatchTime", "SetScoreboardVisibility", "EnableGameModeObjective"] }
-                ]
-            },
-            {
-                parentName: "Blocks2",
-                children: [
-                    { name: "LOGIC", color: COLOR_YELLOW, blocks: ["If", "While", "For", "SetVariable"] },
-                    { name: "OBJECTIVE", color: COLOR_YELLOW, blocks: ["SetCapturePointState", "SetCapturePointOwner", "SetObjectiveProgress", "LockCapturePoint"] },
-                    { name: "PLAYER", color: COLOR_YELLOW, blocks: ["SetPlayerHealth", "Kill", "Teleport", "SetPlayerInventory", "SetPlayerSpeed", "SetPlayerAmmo", "Resupply", "ForceRevive", "SpotPlayer", "SetPlayerCamera"] },
-                    { name: "TRANSFORM", color: COLOR_YELLOW, blocks: ["SetPosition", "SetRotation", "SetLinearVelocity", "SetAngularVelocity"] },
-                    { name: "UI", color: COLOR_YELLOW, blocks: ["DisplayNotificationMessage", "DisplayHighlightedWorldLogMessage", "ClearNotificationMessage"] },
-                    { name: "USER INTERFACE", color: COLOR_YELLOW, blocks: ["DisplayCustomMessage", "SetUIWidgetVisibility", "SetUIWidgetPosition", "SetUIWidgetColor"] },
-                    { name: "VEHICLES", color: COLOR_YELLOW, blocks: ["SpawnVehicle", "DestroyVehicle", "SetVehicleHealth", "RepairVehicle", "SetVehicleTeam", "EjectAllPlayers"] }
-                ]
-            },
-            {
-                parentName: "element1",
-                children: [
-                    { name: "AI", color: COLOR_GREEN, blocks: ["GetAIPawnState", "GetAITarget", "IsAIPawn"] },
-                    { name: "ARRAYS", color: COLOR_GREEN, blocks: ["CreateArray", "ArraySlice", "FirstOf", "LastOf", "ArrayLength", "IndexOf", "EmptyArray"] },
-                    { name: "AUDIO", color: COLOR_GREEN, blocks: ["GetAudioVolume", "IsAudioPlaying"] },
-                    { name: "CAMERA", color: COLOR_GREEN, blocks: ["GetCameraPosition", "GetCameraRotation"] },
-                    { name: "EFFECTS", color: COLOR_GREEN, blocks: ["GetActiveEffects"] },
-                    { name: "EVENT PAYLOADS", color: COLOR_GREEN, blocks: ["EventPlayer", "EventOtherPlayer", "EventTeam", "EventVehicle", "EventDamage", "EventWeapon"] }
-                ]
-            },
-            {
-                parentName: "element2",
-                children: [
-                    { name: "GAMEPLAY", color: COLOR_GREEN, blocks: ["GetTeamScore", "GetCurrentGameMode", "GetRemainingGameTime", "GetTargetScore", "IsGameModeActive"] },
-                    { name: "LOGIC", color: COLOR_GREEN, blocks: ["Compare", "Equals", "NotEquals", "GreaterThan", "LessThan", "GreaterThanOrEqual", "LessThanOrEqual", "And", "Or", "Not"] },
-                    { name: "MATH", color: COLOR_GREEN, blocks: ["MathNumber", "Add", "Subtract", "Multiply", "Divide", "Modulo", "Absolute", "Min", "Max", "Round", "Floor", "Ceil", "Sqrt", "Power", "RandomReal", "RandomInteger", "Sin", "Cos", "PI"] },
-                    { name: "OBJECTIVE", color: COLOR_GREEN, blocks: ["GetCapturePointOwner", "GetCapturePointProgress", "IsCapturePointLocked"] },
-                    { name: "OTHER", color: COLOR_GREEN, blocks: ["CurrentTime", "DeltaTime", "TickRate"] },
-                    { name: "PERFORMANCE", color: COLOR_GREEN, blocks: ["ServerTickRate", "MemoryUsage", "NetworkLatency"] }
-                ]
-            },
-            {
-                parentName: "element3",
-                children: [
-                    { name: "PLAYER", color: COLOR_GREEN, blocks: ["GetPlayers", "GetPlayerState", "GetPlayerHealth", "GetPlayerTeam", "GetPlayerPosition", "GetPlayerVehicle", "IsAlive", "IsManDown", "IsInVehicle", "IsPlayerAiming", "GetPlayerSpeed", "GetPlayerName"] },
-                    { name: "TRANSFORM", color: COLOR_GREEN, blocks: ["CreateVector", "VectorX", "VectorY", "VectorZ", "DistanceBetween", "VectorAdd", "VectorSubtract", "VectorMultiply", "DotProduct", "CrossProduct", "DirectionTo"] },
-                    { name: "USER INTERFACE", color: COLOR_GREEN, blocks: ["GetUIWidgetState", "IsUIVisible"] },
-                    { name: "VEHICLES", color: COLOR_GREEN, blocks: ["GetVehicleState", "GetVehicleHealth", "GetVehicleDriver", "GetVehicleOccupants"] },
-                    { name: "SELECTION LISTS", color: COLOR_GREEN, blocks: ["SoldierClass", "VehicleType", "WeaponType", "InventorySlot", "TeamId"] },
-                    { name: "LITERALS", color: COLOR_GREEN, blocks: ["True", "False", "Null", "EmptyString"] },
-                    { name: "VARIABLES", color: COLOR_GREEN, blocks: ["variableReferenceBlock", "GetVariable", "GlobalVariable", "PlayerVariable"] }
-                ]
-            }
-        ];
-
-        // 1. 親・子のタブ数を構造に合わせて設定
-        state.parentCount = 6;
-        state.childCount = 7;
-        state.filterParent = 0;
-        state.filterChild = [0, 0, 0, 0, 0, 0, 0, 0];
-
-        let totalImported = 0;
-
-        // 2. 指定構成を展開してCodeStockへ追加
-        CUSTOM_PORTAL_STRUCTURE.forEach((pGroup, pIdx) => {
-            state.parents[pIdx] = pGroup.parentName;
-            if (!state.children[pIdx]) state.children[pIdx] = [];
-
-            pGroup.children.forEach((cGroup, cIdx) => {
-                state.children[pIdx][cIdx] = cGroup.name;
-
-                cGroup.blocks.forEach((blockType) => {
-                    let blockData = null;
-                    try {
-                        const temp = ws.newBlock(blockType);
-                        if (temp) {
-                            try { if (temp.initSvg) temp.initSvg(); } catch (_) { }
-                            blockData = extractBlockForClipboard(temp);
-                            temp.dispose(false);
-                        }
-                    } catch (_) {
-                        blockData = { type: blockType };
-                    }
-
-                    if (!blockData) blockData = { type: blockType };
-
-                    state.items.push({
-                        id: uid(),
-                        title: blockType,
-                        body: JSON.stringify(blockData, null, 2),
-                        parent: pIdx,
-                        child: cIdx,
-                        order: state.items.length,
-                        color: cGroup.color
-                    });
-                    totalImported++;
-                });
-            });
-
-            // 子タブの空き枠があれば埋める
-            while (state.children[pIdx].length < 7) {
-                state.children[pIdx].push("Sub-" + state.children[pIdx].length);
-            }
-        });
-
-        saveState();
-        renderPanel();
-        alert(`🎉 取り込み完了！\n合計 ${totalImported} 個のブロックを指定の6大カテゴリ＆色別で整理しました！`);
-        setStatus(`Imported ${totalImported} blocks in 6 categories`);
-    }
+    
 
     // ⚙️ 設定プルダウンメニュー
     function showSettingsMenu(anchorBtn) {
@@ -1008,24 +758,11 @@
         menu.style.left = Math.min(rect.left, window.innerWidth - 220) + "px";
         menu.style.top = (rect.bottom + 4) + "px";
 
-        // 1. PORTAL Blocks 一括取得ボタン
-        const getBlocksBtn = makeButton("📥 IMPORT PORTAL BLOCKS", () => {
-            menu.remove();
-            importPortalBlocks();
-        }, "jcs-menu-btn");
-        getBlocksBtn.style.background = "#2a5298";
-        getBlocksBtn.style.fontWeight = "bold";
-        getBlocksBtn.onmouseenter = () => getBlocksBtn.style.background = "#3b6fc9";
-        getBlocksBtn.onmouseleave = () => getBlocksBtn.style.background = "#2a5298";
-
-        const sep1 = document.createElement("div");
-        sep1.className = "jcs-menu-sep";
-
-        // 2. 全体 EXPORT / IMPORT ボタン
+        // 1. 全体 EXPORT / IMPORT ボタン
         const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
         const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
 
-        // 3. 選択タグ専用の TagsExport / TagsImport ボタン
+        // 2. タグ専用 TagsExport / TagsImport ボタン
         const tagsExpBtn = makeButton("TagsExport（選択タグ保存）", () => {
             exportCurrentTagData();
             menu.remove();
@@ -1042,7 +779,10 @@
         tagsImpBtn.onmouseenter = () => tagsImpBtn.style.background = "#4e6a4e";
         tagsImpBtn.onmouseleave = () => tagsImpBtn.style.background = "#3d4b3d";
 
-        // 4. PARENT カウンター行 [ - 4 + ]
+        const sep1 = document.createElement("div");
+        sep1.className = "jcs-menu-sep";
+
+        // 3. PARENT カウンター行 [ - 4 + ]
         const pRow = document.createElement("div");
         pRow.className = "jcs-menu-row";
         const pLabel = document.createElement("span");
@@ -1079,7 +819,7 @@
         pCounter.append(pMinus, pVal, pPlus);
         pRow.append(pLabel, pCounter);
 
-        // 5. CHILD カウンター行 [ - 6 + ]
+        // 4. CHILD カウンター行 [ - 6 + ]
         const cRow = document.createElement("div");
         cRow.className = "jcs-menu-row";
         const cLabel = document.createElement("span");
@@ -1118,7 +858,7 @@
         const sep2 = document.createElement("div");
         sep2.className = "jcs-menu-sep";
 
-        // 6. 初期化ボタン
+        // 5. 初期化ボタン
         const resetBtn = makeButton("RESET ALL DATA", () => {
             if (confirm("すべてのスニペット、カテゴリ名、設定を初期状態にリセットしますか？\n※この操作は取り消せません。")) {
                 state = cloneDefault();
@@ -1132,11 +872,10 @@
         resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
         resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
 
-        // メニューにすべての項目を配置
-        menu.append(getBlocksBtn, sep1, expBtn, impBtn, tagsExpBtn, tagsImpBtn, pRow, cRow, sep2, resetBtn);
+        // メニューの配置（EXPORT / IMPORT / TagsExport / TagsImport / PARENT / CHILD / RESET）
+        menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, pRow, cRow, sep2, resetBtn);
         document.body.appendChild(menu);
 
-        // メニューの外側をクリックしたら閉じる
         setTimeout(() => {
             document.addEventListener("click", (e) => {
                 if (!menu.contains(e.target) && e.target !== anchorBtn) {
