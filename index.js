@@ -1464,6 +1464,7 @@
         copyBtn.style.width = "100%";
         copyBtn.style.padding = "5px 6px";
         copyBtn.style.marginBottom = "6px";
+        copyBtn.style.color = "#FFFFFF";
         copyBtn.style.background = "#2a5298";
         copyBtn.style.fontSize = "11px";
         copyBtn.onmouseenter = () => copyBtn.style.background = "#3b6fc9";
