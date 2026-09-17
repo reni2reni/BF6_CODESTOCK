@@ -782,117 +782,155 @@
             return;
         }
 
-        setStatus("Blocks取得中...");
+        setStatus("Blocksスキャン中...");
 
-        // ツールボックスから全カテゴリとブロックを抽出
-        let treeContents = null;
-        if (ws.options && ws.options.languageTree) {
-            treeContents = ws.options.languageTree.contents || ws.options.languageTree;
-        }
-        if (!treeContents && ws.getToolbox && ws.getToolbox()) {
-            const tb = ws.getToolbox();
-            if (tb.toolboxDef_) treeContents = tb.toolboxDef_.contents || tb.toolboxDef_;
-        }
+        const categories = []; // { name, colour, blockTypes: [] }
 
-        const categories = [];
-        if (Array.isArray(treeContents)) {
-            treeContents.forEach(item => {
-                if (item.kind === "category" || item.custom) {
-                    categories.push(item);
-                }
-            });
-        }
+        // --- 1. ツールボックス（XMLまたはJSON）からの抽出 ---
+        try {
+            let tree = (ws.options && ws.options.languageTree) || null;
+            if (!tree && ws.getToolbox && ws.getToolbox()) {
+                const tb = ws.getToolbox();
+                tree = tb.toolboxDef_ || null;
+            }
 
-        let totalImported = 0;
-        let pIdx = 0;
-
-        if (categories.length > 0) {
-            // 親カテゴリ数を最大8に合わせて拡張
-            state.parentCount = Math.min(8, Math.max(state.parentCount || 4, categories.length));
-
-            categories.slice(0, 8).forEach((cat, cIdx) => {
-                const catName = cat.name || ("Cat " + (cIdx + 1));
-                state.parents[cIdx] = catName;
-
-                // 子カテゴリ・ブロックの抽出
-                const blocksInCat = [];
-                if (Array.isArray(cat.contents)) {
-                    cat.contents.forEach(sub => {
-                        if (sub.kind === "block" && sub.type) {
-                            blocksInCat.push(sub.type);
-                        } else if (sub.kind === "category" && Array.isArray(sub.contents)) {
-                            sub.contents.forEach(b => { if (b.type) blocksInCat.push(b.type); });
+            // A: XMLノード形式の場合（Portal標準）
+            if (tree && typeof tree.querySelectorAll === "function") {
+                const catNodes = tree.querySelectorAll("category");
+                catNodes.forEach(cat => {
+                    const catName = cat.getAttribute("name") || "Category";
+                    const colour = cat.getAttribute("colour") || cat.getAttribute("color") || "#3498db";
+                    const bTypes = [];
+                    cat.querySelectorAll("block").forEach(b => {
+                        const t = b.getAttribute("type");
+                        if (t && !bTypes.includes(t)) bTypes.push(t);
+                    });
+                    if (bTypes.length > 0) {
+                        categories.push({ name: catName, colour, blockTypes: bTypes });
+                    }
+                });
+            }
+            // B: JSON / オブジェクト配列形式の場合
+            else if (tree) {
+                const contents = Array.isArray(tree) ? tree : (tree.contents || []);
+                if (Array.isArray(contents)) {
+                    contents.forEach(cat => {
+                        const catName = cat.name || "Category";
+                        const colour = cat.colour || cat.color || "#3498db";
+                        const bTypes = [];
+                        const collect = (list) => {
+                            if (!Array.isArray(list)) return;
+                            list.forEach(item => {
+                                if (item.kind === "block" && item.type) bTypes.push(item.type);
+                                if (item.contents) collect(item.contents);
+                            });
+                        };
+                        collect(cat.contents);
+                        if (bTypes.length > 0) {
+                            categories.push({ name: catName, colour, blockTypes: bTypes });
                         }
                     });
                 }
+            }
+        } catch (err) {
+            console.warn("[JS Code Stock] Toolbox scan warning:", err);
+        }
 
-                // 子タブにブロックを分散して格納（1子タブあたり最大10個程度）
-                if (blocksInCat.length > 0) {
-                    const chunkSize = Math.ceil(blocksInCat.length / Math.min(state.childCount || 6, 8));
-                    let childIndex = 0;
-
-                    for (let i = 0; i < blocksInCat.length; i++) {
-                        const blockType = blocksInCat[i];
-                        childIndex = Math.min(Math.floor(i / Math.max(chunkSize, 1)), (state.childCount || 6) - 1);
-
-                        try {
-                            const temp = ws.newBlock(blockType);
-                            if (temp) {
-                                if (typeof temp.initSvg === "function") temp.initSvg();
-                                const blockData = extractBlockForClipboard(temp);
-                                const blockColorHex = typeof temp.getColour === "function" ? temp.getColour() : cat.colour;
-                                const colorIdx = getClosestColorIndex(blockColorHex);
-
-                                temp.dispose(false);
-
-                                if (blockData) {
-                                    state.items.push({
-                                        id: uid(),
-                                        title: blockType,
-                                        body: JSON.stringify(blockData, null, 2),
-                                        parent: cIdx,
-                                        child: childIndex,
-                                        order: state.items.length,
-                                        color: colorIdx
-                                    });
-                                    totalImported++;
-                                }
-                            }
-                        } catch (_) { }
-                    }
+        // --- 2. もしツールボックスから取れなかった場合のフォールバック（Blockly.Blocksを直接抽出） ---
+        if (categories.length === 0) {
+            const allTypes = new Set();
+            const srcList = [
+                typeof _Blockly !== "undefined" && _Blockly.Blocks,
+                typeof Blockly !== "undefined" && Blockly.Blocks
+            ];
+            srcList.forEach(src => {
+                if (src && typeof src === "object") {
+                    Object.keys(src).forEach(k => allTypes.add(k));
                 }
             });
-        } else {
-            // フォールバック：Blockly.Blocks の登録一覧から抽出
-            const blockTypes = Object.keys(_Blockly.Blocks || {});
-            blockTypes.forEach((type, idx) => {
-                try {
-                    const temp = ws.newBlock(type);
-                    if (temp) {
-                        const blockData = extractBlockForClipboard(temp);
-                        const colorIdx = getClosestColorIndex(typeof temp.getColour === "function" ? temp.getColour() : null);
-                        temp.dispose(false);
 
-                        if (blockData) {
-                            state.items.push({
-                                id: uid(),
-                                title: type,
-                                body: JSON.stringify(blockData, null, 2),
-                                parent: 0,
-                                child: Math.min(Math.floor(idx / 10), (state.childCount || 6) - 1),
-                                order: state.items.length,
-                                color: colorIdx
-                            });
-                            totalImported++;
-                        }
+            // プレフィックス等で大まかに分類
+            const typeList = Array.from(allTypes);
+            if (typeList.length > 0) {
+                const chunkSize = Math.ceil(typeList.length / 8);
+                for (let i = 0; i < 8; i++) {
+                    const chunk = typeList.slice(i * chunkSize, (i + 1) * chunkSize);
+                    if (chunk.length > 0) {
+                        categories.push({
+                            name: "Group " + (i + 1),
+                            colour: state.palette[i % state.palette.length],
+                            blockTypes: chunk
+                        });
                     }
-                } catch (_) { }
-            });
+                }
+            }
         }
+
+        if (categories.length === 0) {
+            alert("ブロック定義が見つかりませんでした。");
+            setStatus("Ready");
+            return;
+        }
+
+        // --- 3. 取得したブロックをCodeStockのカテゴリとパレットへ展開 ---
+        // 親タブ・子タブを最大（8x8）に拡張
+        state.parentCount = Math.min(8, Math.max(state.parentCount || 4, categories.length));
+        state.childCount = 8;
+
+        let totalImported = 0;
+
+        categories.slice(0, 8).forEach((cat, pIdx) => {
+            state.parents[pIdx] = cat.name;
+
+            // 子タブの準備
+            if (!state.children[pIdx]) state.children[pIdx] = [];
+            while (state.children[pIdx].length < 8) {
+                state.children[pIdx].push(cat.name.slice(0, 4) + "-" + state.children[pIdx].length);
+            }
+
+            const bTypes = cat.blockTypes;
+            const chunkSize = Math.ceil(bTypes.length / 8);
+
+            bTypes.forEach((blockType, idx) => {
+                const cIdx = Math.min(Math.floor(idx / Math.max(chunkSize, 1)), 7);
+
+                let blockData = null;
+                let colorIdx = getClosestColorIndex(cat.colour);
+
+                // ブロックのインスタンス化とシリアライズ
+                try {
+                    const temp = ws.newBlock(blockType);
+                    if (temp) {
+                        try { if (temp.initSvg) temp.initSvg(); } catch (_) { }
+                        blockData = extractBlockForClipboard(temp);
+                        if (typeof temp.getColour === "function") {
+                            colorIdx = getClosestColorIndex(temp.getColour());
+                        }
+                        temp.dispose(false);
+                    }
+                } catch (_) {
+                    // 例外が出た場合でも最小限のデータで救済
+                    blockData = { type: blockType };
+                }
+
+                if (!blockData) blockData = { type: blockType };
+
+                state.items.push({
+                    id: uid(),
+                    title: blockType,
+                    body: JSON.stringify(blockData, null, 2),
+                    parent: pIdx,
+                    child: cIdx,
+                    order: state.items.length,
+                    color: colorIdx
+                });
+                totalImported++;
+            });
+        });
 
         saveState();
         renderPanel();
-        alert("PORTAL Blocksの取り込みが完了しました！\n取得ブロック数: " + totalImported + " 個");
+        alert("🎉 PORTAL Blocksの取り込みが完了しました！\n取得ブロック数: " + totalImported + " 個");
         setStatus("Imported " + totalImported + " blocks");
     }
 
