@@ -738,7 +738,13 @@
         }
 
         panel.classList.remove("collapsed");
-        if (savedPanelHeight) panel.style.height = savedPanelHeight;
+
+        // ★ 修正：600pxで上書きせず、記憶された高さ（または変更後の高さ）を適用
+        if (state.windowBounds && state.windowBounds.height) {
+            panel.style.height = state.windowBounds.height + "px";
+        } else if (savedPanelHeight) {
+            panel.style.height = savedPanelHeight;
+        }
 
         // --- 以下は元のタブ・フォーム・リスト描画処理のまま ---
         const parentTabs = document.createElement("div");
@@ -1553,12 +1559,15 @@
         if (!panel || isCollapsed) return;
         const rect = panel.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
+            const h = Math.round(rect.height);
             state.windowBounds = {
                 left: Math.round(rect.left),
                 top: Math.round(rect.top),
                 width: Math.round(rect.width),
-                height: Math.round(rect.height)
+                height: h
             };
+            // ★ ユーザーが変更した高さを記憶値として更新
+            savedPanelHeight = h + "px";
             saveState();
         }
     }
