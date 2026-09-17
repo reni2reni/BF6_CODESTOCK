@@ -431,7 +431,7 @@
         addOption("Delete", () => {
             const count = selectedIds.size;
             if (count === 0) return;
-            if (confirm(`選択された ${count} 個のアイテムを削除しますか？`)) {
+            if (confirm(`Delete ${count} selected item(s)?`)) {
                 state.items = state.items.filter(i => !selectedIds.has(String(i.id)));
                 selectedIds.clear();
                 lastSelected = null;
@@ -786,7 +786,7 @@
         const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
 
         // 2. タグ専用 TagsExport / TagsImport ボタン
-        const tagsExpBtn = makeButton("TagsExport（Save Tags）", () => {
+        const tagsExpBtn = makeButton("TagsExport", () => {
             exportCurrentTagData();
             menu.remove();
         }, "jcs-menu-btn");
@@ -794,7 +794,7 @@
         tagsExpBtn.onmouseenter = () => tagsExpBtn.style.background = "#4e6a4e";
         tagsExpBtn.onmouseleave = () => tagsExpBtn.style.background = "#3d4b3d";
 
-        const tagsImpBtn = makeButton("TagsImport（Add Tags）", () => {
+        const tagsImpBtn = makeButton("TagsImport", () => {
             importCurrentTagData();
             menu.remove();
         }, "jcs-menu-btn");
@@ -883,7 +883,7 @@
 
         // 5. 初期化ボタン
         const resetBtn = makeButton("RESET ALL DATA", () => {
-            if (confirm("すべてのスニペット、カテゴリ名、設定を初期状態にリセットしますか？\n※この操作は取り消せません。")) {
+            if (confirm("Reset all snippets, categories, and settings to default?\n(This action cannot be undone.)")) {
                 state = cloneDefault();
                 saveState();
                 renderPanel();
@@ -1386,7 +1386,7 @@
 
         const isParent = (type === "parent");
         const currentName = isParent ? state.parents[index] : state.children[state.filterParent][index];
-        const labelTitle = isParent ? "Folder Name (親フォルダ)" : "SubFolder Name (子フォルダ)";
+        const labelTitle = isParent ? "Folder Name (Parent)" : "SubFolder Name (Child)";
 
         const box = document.createElement("div");
         box.id = "uiPrompt";
@@ -1401,9 +1401,8 @@
         box.style.color = "#ddd";
         box.style.fontSize = "12px";
         box.style.boxShadow = "0 6px 18px rgba(0,0,0,0.8)";
-        box.style.minWidth = "190px";
+        box.style.minWidth = "100px";
 
-        // 1. 名称変更エリア
         const t = document.createElement("div");
         t.textContent = labelTitle;
         t.style.marginBottom = "6px";
@@ -1442,14 +1441,12 @@
         cancel.style.padding = "4px";
         rowBtn.append(ok, cancel);
 
-        // 2. 区切り線
         const sep = document.createElement("div");
         sep.style.height = "1px";
         sep.style.background = "#444";
         sep.style.margin = "10px 0 8px";
 
-        // 3. Folder Copy ボタン
-        const copyBtn = makeButton("Folder: Copy (TAB丸ごとコピー)", () => {
+        const copyBtn = makeButton("Folder: Copy (Entire TAB)", () => {
             if (isParent) {
                 folderClipboard = {
                     type: "parent",
@@ -1457,14 +1454,14 @@
                     childrenNames: (state.children[index] || []).slice(),
                     items: state.items.filter(i => i.parent === index).map(i => ({ ...i }))
                 };
-                setStatus(`親フォルダ [${state.parents[index]}] を丸ごとコピーしました`);
+                setStatus(`Copied parent folder [${state.parents[index]}]`);
             } else {
                 folderClipboard = {
                     type: "child",
                     name: state.children[state.filterParent][index],
                     items: state.items.filter(i => i.parent === state.filterParent && i.child === index).map(i => ({ ...i }))
                 };
-                setStatus(`子フォルダ [${state.children[state.filterParent][index]}] を丸ごとコピーしました`);
+                setStatus(`Copied subfolder [${state.children[state.filterParent][index]}]`);
             }
             box.remove();
         });
@@ -1476,16 +1473,15 @@
         copyBtn.onmouseenter = () => copyBtn.style.background = "#3b6fc9";
         copyBtn.onmouseleave = () => copyBtn.style.background = "#2a5298";
 
-        // 4. Folder Paste ボタン（上書き）
         const canPaste = folderClipboard && (folderClipboard.type === type);
-        const pasteBtn = makeButton("Folder: Paste (TAB上書き貼付)", () => {
+        const pasteBtn = makeButton("Folder: Paste (Overwrite TAB)", () => {
             if (!folderClipboard) return;
             if (folderClipboard.type !== type) {
-                alert(`コピー元の種類が異なります（現在「${folderClipboard.type === "parent" ? "親" : "子"}」フォルダをコピー中）`);
+                alert(`Type mismatch: A ${folderClipboard.type === "parent" ? "parent" : "sub"} folder is currently copied.`);
                 return;
             }
 
-            if (!confirm(`現在のTAB [${currentName}] を [${folderClipboard.name}] で丸ごと上書きしますか？\n※このTAB内の既存コードはすべて置き換わります。`)) {
+            if (!confirm(`Overwrite TAB [${currentName}] with [${folderClipboard.name}]?\nAll existing snippets in this TAB will be replaced.`)) {
                 return;
             }
 
@@ -1498,7 +1494,7 @@
                 folderClipboard.items.forEach(i => {
                     state.items.push({ ...i, id: uid(), parent: index });
                 });
-                setStatus(`親フォルダ [${folderClipboard.name}] を上書き貼り付けしました`);
+                setStatus(`Pasted parent folder [${folderClipboard.name}]`);
             } else {
                 const pIdx = state.filterParent;
                 state.children[pIdx][index] = folderClipboard.name;
@@ -1506,7 +1502,7 @@
                 folderClipboard.items.forEach(i => {
                     state.items.push({ ...i, id: uid(), parent: pIdx, child: index });
                 });
-                setStatus(`子フォルダ [${folderClipboard.name}] を上書き貼り付けしました`);
+                setStatus(`Pasted subfolder [${folderClipboard.name}]`);
             }
 
             saveState();
@@ -1528,7 +1524,6 @@
         input.focus();
         input.select();
 
-        // ★ 枠外をクリックしたらメニューを自動で閉じる（キャンセル）
         setTimeout(() => {
             const onOutside = (ev) => {
                 if (!box.contains(ev.target)) {
@@ -1951,7 +1946,7 @@
             .sort((a, b) => (a.order || 0) - (b.order || 0));
 
         if (targetItems.length === 0) {
-            alert("現在のタグにはコードスニペットがありません。");
+            alert("No snippets found in the current tag.");
             return;
         }
 
@@ -1994,19 +1989,17 @@
             reader.onload = () => {
                 try {
                     const raw = JSON.parse(reader.result);
-                    // 配列形式、または { items: [...] } 形式の両方に対応
                     const importList = Array.isArray(raw) ? raw : (raw.items || []);
 
                     if (!Array.isArray(importList) || importList.length === 0) {
-                        alert("有効なコードリストが見つかりませんでした。");
+                        alert("No valid snippets found in the file.");
                         return;
                     }
 
-                    if (!confirm(`現在のタグ [${pName} > ${cName}] に ${importList.length} 個のコードを追加しますか？`)) {
+                    if (!confirm(`Add ${importList.length} snippet(s) into current tag [${pName} > ${cName}]?`)) {
                         return;
                     }
 
-                    // 現在のタグの末尾のorder番号を取得
                     const currentItems = state.items.filter(i => i.parent === pIdx && i.child === cIdx);
                     let nextOrderNum = currentItems.length;
                     let addedCount = 0;
@@ -2017,8 +2010,8 @@
                                 id: uid(),
                                 title: item.title,
                                 body: item.body || "",
-                                parent: pIdx,  // ★ 現在の親タグに固定
-                                child: cIdx,   // ★ 現在の子タグに固定
+                                parent: pIdx,
+                                child: cIdx,
                                 order: nextOrderNum++,
                                 color: (item.color !== undefined) ? item.color : state.currentColor
                             });
@@ -2028,16 +2021,17 @@
 
                     saveState();
                     renderPanel();
-                    alert(`追加完了！\nタグ [${pName} > ${cName}] に ${addedCount} 個のコードを追加しました。`);
+                    alert(`Import complete!\nAdded ${addedCount} snippet(s) into [${pName} > ${cName}].`);
                     setStatus(`TagImport: ${addedCount} items added`);
                 } catch (e) {
-                    alert("ファイルの読み込みに失敗しました。");
+                    alert("Failed to read the file.");
                 }
             };
             reader.readAsText(file);
         };
         input.click();
     }
+
 
     // ウィンドウの位置とサイズを記憶
     function saveWindowBounds() {
