@@ -1574,15 +1574,22 @@
                 color: state.currentColor
             });
         }
+
+        // 編集モードを終了して保存
         editingIdValue = null;
+        lastEditingId = null;
         saveState();
+
+        // ★ コード・名称欄をクリアし、入力パネルを閉じる
+        if (titleEl) titleEl.value = "";
+        if (bodyEl) bodyEl.value = "";
+        inputHidden = true;
 
         // ブロックから直接登録した場合の終了処理
         if (interactionMode === "blockEntry") {
             interactionMode = "normal";
             pendingBlockData = null;
 
-            // ⬒から一時展開されていた場合はその場で再折りたたみ
             if (isTempExpanded) {
                 isTempExpanded = false;
                 isCollapsed = true;
@@ -1590,16 +1597,11 @@
                 return;
             }
 
-            // 🔓️（アンロック）なら閉じる、🔒️（ロック）なら閉じずに開いたまま維持
             if (!isPinned) {
                 closePanel();
                 return;
             }
 
-            // 🔒️ の場合は入力欄をクリアして閉じた状態（リスト一覧）にする
-            if (titleEl) titleEl.value = "";
-            if (bodyEl) bodyEl.value = "";
-            inputHidden = true;
             renderPanel();
             return;
         }
