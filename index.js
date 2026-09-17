@@ -761,8 +761,8 @@
         // IMPORT ボタン
         const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
 
-        const sep = document.createElement("div");
-        sep.className = "jcs-menu-sep";
+        const sep1 = document.createElement("div");
+        sep1.className = "jcs-menu-sep";
 
         // PARENT カウンター行 [ - 4 + ]
         const pRow = document.createElement("div");
@@ -786,7 +786,6 @@
         const pPlus = makeButton("+", () => {
             if (state.parentCount < 8) {
                 state.parentCount++;
-                // 足りない親フォルダ名と子配列を自動生成
                 while (state.parents.length < state.parentCount) {
                     const char = String.fromCharCode(65 + state.parents.length);
                     state.parents.push(char);
@@ -822,9 +821,8 @@
             }
         });
         const cPlus = makeButton("+", () => {
-            if (state.childCount < 8) { // ★ 最大値を「8」に変更
+            if (state.childCount < 8) {
                 state.childCount++;
-                // 各親の子フォルダ名が足りなければ自動生成
                 state.children.forEach((arr, pIdx) => {
                     const pChar = state.parents[pIdx] || String.fromCharCode(65 + pIdx);
                     while (arr.length < state.childCount) {
@@ -836,11 +834,27 @@
                 renderPanel();
             }
         });
-
         cCounter.append(cMinus, cVal, cPlus);
         cRow.append(cLabel, cCounter);
 
-        menu.append(expBtn, impBtn, sep, pRow, cRow);
+        const sep2 = document.createElement("div");
+        sep2.className = "jcs-menu-sep";
+
+        // ★ 一番下の初期化ボタン（全データを完全リセット）
+        const resetBtn = makeButton("RESET ALL DATA", () => {
+            if (confirm("すべてのスニペット、カテゴリ名、設定を初期状態にリセットしますか？\n※この操作は取り消せません。")) {
+                state = cloneDefault();
+                saveState();
+                renderPanel();
+                setStatus("Reset complete");
+                menu.remove();
+            }
+        }, "jcs-menu-btn");
+        resetBtn.style.background = "#5a2020";
+        resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
+        resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
+
+        menu.append(expBtn, impBtn, sep1, pRow, cRow, sep2, resetBtn);
         document.body.appendChild(menu);
 
         setTimeout(() => {
