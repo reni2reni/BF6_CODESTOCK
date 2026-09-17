@@ -31,6 +31,7 @@
         currentColor: 0
     };
     let editingIdValue = null;
+    let lastEditingId = null; // ★ 編集中のアイテムIDを追跡
     let inputHidden = false;
     let selectedIds = new Set();
     let lastSelected = null;
@@ -1012,17 +1013,23 @@
         } else if (hasEditingId()) {
             const item = state.items.find(x => x.id === editingIdValue);
             if (item) {
-                // 退避されていた入力内容があればそれを維持、なければアイテムの値をセット
-                titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
-                bodyEl.value = preservedBody !== null ? preservedBody : item.body;
-                titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
+                // ★ 新しくEDITを押した時はアイテムのコードと名称を確実にセット
+                if (lastEditingId !== editingIdValue) {
+                    titleEl.value = item.title;
+                    bodyEl.value = item.body;
+                    lastEditingId = editingIdValue;
+                } else {
+                    // 同じアイテムの編集中にタブや色を変えた時は編集中の文字を維持
+                    titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
+                    bodyEl.value = preservedBody !== null ? preservedBody : item.body;
+                }
+                titleEl.style.borderLeft = "6px solid " + state.palette[item.color || 0];
                 titleEl.style.paddingLeft = "6px";
             }
         } else {
-            // ★ 新規・登録モード時：退避されたタイトルとコードをそのまま復元
+            lastEditingId = null;
             if (preservedTitle !== null) titleEl.value = preservedTitle;
             if (preservedBody !== null) bodyEl.value = preservedBody;
-            // 選択された色のボーダーを適用
             titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
             titleEl.style.paddingLeft = "6px";
         }
@@ -1610,6 +1617,7 @@
 
     function editItem(item) {
         editingIdValue = item.id;
+        lastEditingId = null; // ★ リセットして必ずアイテムのデータを読み込ませる
         state.filterParent = item.parent;
         state.filterChild[item.parent] = item.child;
         state.currentColor = item.color || 0;
