@@ -685,6 +685,9 @@
 
     function renderPanel() {
         if (!panel) return;
+        // ★ 再描画前に入力欄に入っている内容を一時退避
+        const preservedTitle = titleEl ? titleEl.value : null;
+        const preservedBody = bodyEl ? bodyEl.value : null;
         panel.innerHTML = "";
 
         const container = document.createElement("div");
@@ -832,12 +835,17 @@
         } else if (hasEditingId()) {
             const item = state.items.find(x => x.id === editingIdValue);
             if (item) {
-                titleEl.value = item.title;
-                bodyEl.value = item.body;
-                titleEl.style.borderLeft = "6px solid " + state.palette[item.color || 0];
+                // 退避されていた入力内容があればそれを維持、なければアイテムの値をセット
+                titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
+                bodyEl.value = preservedBody !== null ? preservedBody : item.body;
+                titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
                 titleEl.style.paddingLeft = "6px";
             }
         } else {
+            // ★ 新規・登録モード時：退避されたタイトルとコードをそのまま復元
+            if (preservedTitle !== null) titleEl.value = preservedTitle;
+            if (preservedBody !== null) bodyEl.value = preservedBody;
+            // 選択された色のボーダーを適用
             titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
             titleEl.style.paddingLeft = "6px";
         }
