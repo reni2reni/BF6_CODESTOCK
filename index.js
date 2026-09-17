@@ -953,10 +953,10 @@
         const rect = anchorBtn.getBoundingClientRect();
         const menu = document.createElement("div");
         menu.id = "jcs-settings-menu";
-        menu.style.left = Math.min(rect.left, window.innerWidth - 200) + "px";
+        menu.style.left = Math.min(rect.left, window.innerWidth - 220) + "px";
         menu.style.top = (rect.bottom + 4) + "px";
 
-        // ★ PORTAL Blocks 一括取得ボタン
+        // 1. PORTAL Blocks 一括取得ボタン
         const getBlocksBtn = makeButton("📥 IMPORT PORTAL BLOCKS", () => {
             menu.remove();
             importPortalBlocks();
@@ -966,15 +966,31 @@
         getBlocksBtn.onmouseenter = () => getBlocksBtn.style.background = "#3b6fc9";
         getBlocksBtn.onmouseleave = () => getBlocksBtn.style.background = "#2a5298";
 
-        // EXPORT ボタン
-        const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
-        // IMPORT ボタン
-        const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
-
         const sep1 = document.createElement("div");
         sep1.className = "jcs-menu-sep";
 
-        // PARENT カウンター行 [ - 4 + ]
+        // 2. 全体 EXPORT / IMPORT ボタン
+        const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
+        const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
+
+        // 3. 選択タグ専用の TagsExport / TagsImport ボタン
+        const tagsExpBtn = makeButton("TagsExport（選択タグ保存）", () => {
+            exportCurrentTagData();
+            menu.remove();
+        }, "jcs-menu-btn");
+        tagsExpBtn.style.background = "#3d4b3d";
+        tagsExpBtn.onmouseenter = () => tagsExpBtn.style.background = "#4e6a4e";
+        tagsExpBtn.onmouseleave = () => tagsExpBtn.style.background = "#3d4b3d";
+
+        const tagsImpBtn = makeButton("TagsImport（現在タグへ追加）", () => {
+            importCurrentTagData();
+            menu.remove();
+        }, "jcs-menu-btn");
+        tagsImpBtn.style.background = "#3d4b3d";
+        tagsImpBtn.onmouseenter = () => tagsImpBtn.style.background = "#4e6a4e";
+        tagsImpBtn.onmouseleave = () => tagsImpBtn.style.background = "#3d4b3d";
+
+        // 4. PARENT カウンター行 [ - 4 + ]
         const pRow = document.createElement("div");
         pRow.className = "jcs-menu-row";
         const pLabel = document.createElement("span");
@@ -1011,7 +1027,7 @@
         pCounter.append(pMinus, pVal, pPlus);
         pRow.append(pLabel, pCounter);
 
-        // CHILD カウンター行 [ - 6 + ]
+        // 5. CHILD カウンター行 [ - 6 + ]
         const cRow = document.createElement("div");
         cRow.className = "jcs-menu-row";
         const cLabel = document.createElement("span");
@@ -1050,7 +1066,7 @@
         const sep2 = document.createElement("div");
         sep2.className = "jcs-menu-sep";
 
-        // 初期化ボタン
+        // 6. 初期化ボタン
         const resetBtn = makeButton("RESET ALL DATA", () => {
             if (confirm("すべてのスニペット、カテゴリ名、設定を初期状態にリセットしますか？\n※この操作は取り消せません。")) {
                 state = cloneDefault();
@@ -1064,9 +1080,11 @@
         resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
         resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
 
-        menu.append(getBlocksBtn, sep1, expBtn, impBtn, pRow, cRow, sep2, resetBtn);
+        // メニューにすべての項目を配置
+        menu.append(getBlocksBtn, sep1, expBtn, impBtn, tagsExpBtn, tagsImpBtn, pRow, cRow, sep2, resetBtn);
         document.body.appendChild(menu);
 
+        // メニューの外側をクリックしたら閉じる
         setTimeout(() => {
             document.addEventListener("click", (e) => {
                 if (!menu.contains(e.target) && e.target !== anchorBtn) {
@@ -1943,6 +1961,106 @@
                 } catch (e) {
                     setStatus("Loading failed");
                     BF2042Portal.Shared.logError("JS Code Stock import", String(e));
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+
+    // 現在選択しているタグ（親・子）のコードリストのみをエクスポート
+    function exportCurrentTagData() {
+        const pIdx = state.filterParent;
+        const cIdx = state.filterChild[pIdx];
+        const pName = state.parents[pIdx] || ("P" + pIdx);
+        const cName = (state.children[pIdx] && state.children[pIdx][cIdx]) || ("C" + cIdx);
+
+        const targetItems = state.items
+            .filter(i => i.parent === pIdx && i.child === cIdx)
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        if (targetItems.length === 0) {
+            alert("現在のタグにはコードスニペットがありません。");
+            return;
+        }
+
+        const data = {
+            type: "CodeStock_TagExport",
+            parentName: pName,
+            childName: cName,
+            items: targetItems.map(i => ({
+                title: i.title,
+                body: i.body,
+                color: i.color || 0
+            }))
+        };
+
+        const text = JSON.stringify(data, null, 2);
+        copyText(text).then(() => setStatus("Tag JSON copied to clipboard"));
+        const blob = new Blob([text], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `Tag_${pName}_${cName}_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    // 現在選択しているタグへ、純粋にコードリストのみを末尾追加
+    function importCurrentTagData() {
+        const pIdx = state.filterParent;
+        const cIdx = state.filterChild[pIdx];
+        const pName = state.parents[pIdx] || ("P" + pIdx);
+        const cName = (state.children[pIdx] && state.children[pIdx][cIdx]) || ("C" + cIdx);
+
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".json,application/json";
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const raw = JSON.parse(reader.result);
+                    // 配列形式、または { items: [...] } 形式の両方に対応
+                    const importList = Array.isArray(raw) ? raw : (raw.items || []);
+
+                    if (!Array.isArray(importList) || importList.length === 0) {
+                        alert("有効なコードリストが見つかりませんでした。");
+                        return;
+                    }
+
+                    if (!confirm(`現在のタグ [${pName} > ${cName}] に ${importList.length} 個のコードを追加しますか？`)) {
+                        return;
+                    }
+
+                    // 現在のタグの末尾のorder番号を取得
+                    const currentItems = state.items.filter(i => i.parent === pIdx && i.child === cIdx);
+                    let nextOrderNum = currentItems.length;
+                    let addedCount = 0;
+
+                    importList.forEach(item => {
+                        if (item && item.title) {
+                            state.items.push({
+                                id: uid(),
+                                title: item.title,
+                                body: item.body || "",
+                                parent: pIdx,  // ★ 現在の親タグに固定
+                                child: cIdx,   // ★ 現在の子タグに固定
+                                order: nextOrderNum++,
+                                color: (item.color !== undefined) ? item.color : state.currentColor
+                            });
+                            addedCount++;
+                        }
+                    });
+
+                    saveState();
+                    renderPanel();
+                    alert(`追加完了！\nタグ [${pName} > ${cName}] に ${addedCount} 個のコードを追加しました。`);
+                    setStatus(`TagImport: ${addedCount} items added`);
+                } catch (e) {
+                    alert("ファイルの読み込みに失敗しました。");
                 }
             };
             reader.readAsText(file);
