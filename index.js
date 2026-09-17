@@ -1401,7 +1401,7 @@
         box.style.color = "#ddd";
         box.style.fontSize = "12px";
         box.style.boxShadow = "0 6px 18px rgba(0,0,0,0.8)";
-        box.style.minWidth = "100px";
+        box.style.Width = "100px";
 
         const t = document.createElement("div");
         t.textContent = labelTitle;
@@ -1446,7 +1446,7 @@
         sep.style.background = "#444";
         sep.style.margin = "10px 0 8px";
 
-        const copyBtn = makeButton("Folder: Copy (Entire TAB)", () => {
+        const copyBtn = makeButton("Folder: Copy", () => {
             if (isParent) {
                 folderClipboard = {
                     type: "parent",
@@ -1474,7 +1474,7 @@
         copyBtn.onmouseleave = () => copyBtn.style.background = "#2a5298";
 
         const canPaste = folderClipboard && (folderClipboard.type === type);
-        const pasteBtn = makeButton("Folder: Paste (Overwrite TAB)", () => {
+        const pasteBtn = makeButton("Folder: Paste ", () => {
             if (!folderClipboard) return;
             if (folderClipboard.type !== type) {
                 alert(`Type mismatch: A ${folderClipboard.type === "parent" ? "parent" : "sub"} folder is currently copied.`);
