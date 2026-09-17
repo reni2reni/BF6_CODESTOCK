@@ -63,7 +63,9 @@
             filterParent: 0,
             filterChild: [0, 0, 0, 0],
             filterColor: null,
-            currentColor: 0
+            currentColor: 0,
+            // ★ ウィンドウ位置とサイズ（初期値）
+            windowBounds: { left: null, top: null, width: 400, height: 600 }
         };
     }
 
@@ -1546,6 +1548,73 @@
         input.click();
     }
 
+    // ウィンドウの位置とサイズを記憶
+    function saveWindowBounds() {
+        if (!panel || isCollapsed) return;
+        const rect = panel.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+            state.windowBounds = {
+                left: Math.round(rect.left),
+                top: Math.round(rect.top),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height)
+            };
+            saveState();
+        }
+    }
+
+    // 記憶した位置とサイズを適用
+    function applySavedWindowBounds() {
+        if (!panel || !state.windowBounds) return false;
+        const b = state.windowBounds;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        // ★ サイズ（幅・高さ）はお好みの大きさを常に維持
+        if (b.width) panel.style.width = Math.max(320, Math.min(b.width, vw - 16)) + "px";
+        if (b.height) panel.style.height = Math.max(200, Math.min(b.height, vh - 16)) + "px";
+
+        // ★ 位置（座標）は「🔒️（ロック中）」の時だけ記憶位置に固定する
+        if (isPinned && b.left !== null && b.top !== null) {
+            const maxL = Math.max(8, vw - (b.width || 400) - 8);
+            const maxT = Math.max(8, vh - (b.height || 600) - 8);
+            panel.style.left = Math.max(8, Math.min(b.left, maxL)) + "px";
+            panel.style.top = Math.max(8, Math.min(b.top, maxT)) + "px";
+            panel.style.right = "auto";
+            return true; // 位置固定完了
+        }
+
+        return false; // ロック解除（🔓️）中なのでカーソル位置へ移動させる
+    }
+
+    function openPanel() {
+        if (panel) {
+            panel.style.display = "flex";
+            renderPanel();
+            enablePanelDragging();
+
+            // 🔒️なら記憶位置に固定、🔓️ならマウスカーソルのすぐ近くに表示
+            const isPositionFixed = applySavedWindowBounds();
+            if (!isPositionFixed) {
+                requestAnimationFrame(positionPanelAtContext);
+            }
+            return;
+        }
+
+        injectStyle();
+        panel = document.createElement("div");
+        panel.id = "js-code-stock-panel";
+        document.body.appendChild(panel);
+        renderPanel();
+        enablePanelDragging();
+
+        // 🔒️なら記憶位置に固定、🔓️ならマウスカーソルのすぐ近くに表示
+        const isPositionFixed = applySavedWindowBounds();
+        if (!isPositionFixed) {
+            requestAnimationFrame(positionPanelAtContext);
+        }
+    }
+
     function positionPanelAtContext() {
         if (!panel) return;
         const e = lastContextMenuEvent || lastMouseEvent;
@@ -1574,6 +1643,11 @@
         if (!panel || panel._dragInitialized) return;
         panel._dragInitialized = true;
 
+        // リサイズ（マウスを離した時）のサイズ変更を自動保存
+        panel.addEventListener("mouseup", () => {
+            if (!isCollapsed) saveWindowBounds();
+        });
+
         panel.addEventListener("mousedown", e => {
             if (e.button !== 0) return;
             const title = e.target.closest(".jcs-title");
@@ -1595,6 +1669,8 @@
             const up = () => {
                 document.removeEventListener("mousemove", move);
                 document.removeEventListener("mouseup", up);
+                // ★ ドラッグ移動完了時に位置を保存
+                saveWindowBounds();
             };
 
             document.addEventListener("mousemove", move);
@@ -1607,19 +1683,26 @@
             panel.style.display = "flex";
             renderPanel();
             enablePanelDragging();
-            // ★ 🔒️（isPinned）がONの場合はメニューから呼ばれても位置を移動させない
-            if (!isPinned) {
+
+            // 記憶された位置・サイズを復元（初回など未保存の場合のみカーソル位置へ）
+            const hasBounds = applySavedWindowBounds();
+            if (!hasBounds && !isPinned) {
                 requestAnimationFrame(positionPanelAtContext);
             }
             return;
         }
+
         injectStyle();
         panel = document.createElement("div");
         panel.id = "js-code-stock-panel";
         document.body.appendChild(panel);
         renderPanel();
         enablePanelDragging();
-        requestAnimationFrame(positionPanelAtContext);
+
+        const hasBounds = applySavedWindowBounds();
+        if (!hasBounds) {
+            requestAnimationFrame(positionPanelAtContext);
+        }
     }
 
     function closePanel() {
