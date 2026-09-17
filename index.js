@@ -54,6 +54,41 @@
     let lastMouseEvent = null;
     let lastContextMenuEvent = null;
 
+    const DB_NAME = "BF2042Portal_JSCodeStock_DB";
+    const DB_STORE = "state_store";
+
+    function openDB() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, 1);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(DB_STORE)) {
+                    db.createObjectStore(DB_STORE);
+                }
+            };
+            req.onsuccess = (e) => resolve(e.target.result);
+            req.onerror = (e) => reject(e.target.error);
+        });
+    }
+
+    function idbGet(key) {
+        return openDB().then(db => new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, "readonly");
+            const req = tx.objectStore(DB_STORE).get(key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        }));
+    }
+
+    function idbSet(key, val) {
+        return openDB().then(db => new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, "readwrite");
+            const req = tx.objectStore(DB_STORE).put(val, key);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        }));
+    }
+
     function cloneDefault() {
         return {
             items: [],
@@ -70,44 +105,56 @@
         };
     }
 
-    function loadState() {
+    async function loadState() {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return;
-            const saved = JSON.parse(raw);
+            let saved = null;
+            // 1. 大容量 IndexedDB から読み込み
+            try {
+                saved = await idbGet("app_state");
+            } catch (_) { }
+
+            // 2. 初回のみ従来の localStorage から自動移行
+            if (!saved) {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    saved = JSON.parse(raw);
+                    idbSet("app_state", saved).catch(() => { });
+                }
+            }
+
+            if (!saved) return;
             const d = cloneDefault();
             state = Object.assign(d, saved);
+
+            state.filterParent = 0;
+            state.filterChild = Array(8).fill(0);
             if (!state.parentCount) state.parentCount = 4;
             if (!state.childCount) state.childCount = 6;
 
-            state.filterParent = 0;
-            state.filterChild = Array(PARENT_COUNT).fill(0);
-
-            if (!Array.isArray(state.parents) || state.parents.length !== PARENT_COUNT) state.parents = d.parents;
-            if (!Array.isArray(state.children) || state.children.length !== PARENT_COUNT) {
-                state.children = d.children;
-            } else {
-                state.children = state.children.map((children, parentIndex) => {
-                    const next = Array.isArray(children) ? children.slice(0, CHILD_COUNT) : [];
-                    while (next.length < CHILD_COUNT) next.push(d.children[parentIndex][next.length]);
-                    return next;
-                });
-            }
-            if (!Array.isArray(state.palette) || state.palette.length !== COLOR_COUNT) state.palette = d.palette;
+            if (Array.isArray(saved.parents)) state.parents = saved.parents.slice();
+            if (Array.isArray(saved.children)) state.children = saved.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
+            if (Array.isArray(saved.palette) && saved.palette.length === COLOR_COUNT) state.palette = saved.palette;
             if (!Array.isArray(state.items)) state.items = [];
+
+            if (panel) renderPanel();
         } catch (e) {
             console.error("[JS Code Stock] load failed", e);
         }
     }
 
     function saveState() {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        // 大容量 IndexedDB に保存（数百MB〜数GB対応）
+        idbSet("app_state", state).then(() => {
             setStatus("Saved");
-        } catch (e) {
-            setStatus("Save failed");
-            BF2042Portal.Shared.logError("JS Code Stock", String(e));
-        }
+        }).catch(err => {
+            console.warn("[JS Code Stock] IndexedDB save failed, fallback to local:", err);
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                setStatus("Saved");
+            } catch (e) {
+                setStatus("Save failed");
+            }
+        });
     }
 
     function uid() {
@@ -1614,10 +1661,10 @@
         const data = {
             items: state.items,
             config: {
-                parents: state.parents,
-                children: state.children,
-                filterParent: state.filterParent,
-                filterChild: state.filterChild,
+                parentCount: state.parentCount || 4,
+                childCount: state.childCount || 6,
+                parents: state.parents,   // ★ カスタム親カテゴリ名
+                children: state.children, // ★ カスタム子カテゴリ名
                 palette: state.palette
             }
         };
@@ -1645,26 +1692,24 @@
                     if (!confirm("Overwrite current JS Code Stock data?")) return;
                     if (Array.isArray(data.items)) state.items = data.items;
                     if (data.config) {
-                        if (Array.isArray(data.config.parents) && data.config.parents.length === PARENT_COUNT) {
-                            state.parents = data.config.parents;
+                        // ★ カテゴリ数設定の復元
+                        if (data.config.parentCount) state.parentCount = Math.max(1, Math.min(8, Number(data.config.parentCount) || 4));
+                        if (data.config.childCount) state.childCount = Math.max(1, Math.min(8, Number(data.config.childCount) || 6));
+
+                        // ★ 変更した親カテゴリ名・子カテゴリ名の完全復元
+                        if (Array.isArray(data.config.parents)) {
+                            state.parents = data.config.parents.slice();
                         }
-                        if (Array.isArray(data.config.children) && data.config.children.length === PARENT_COUNT) {
-                            state.children = data.config.children.map((children, parentIndex) => {
-                                const next = Array.isArray(children) ? children.slice(0, CHILD_COUNT) : [];
-                                while (next.length < CHILD_COUNT) next.push(DEFAULT_CHILDREN[parentIndex][next.length]);
-                                return next;
-                            });
+                        if (Array.isArray(data.config.children)) {
+                            state.children = data.config.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
                         }
-                        if (Array.isArray(data.config.palette) && data.config.palette.length === COLOR_COUNT) state.palette = data.config.palette;
-                        if (data.config.filterParent !== undefined) state.filterParent = Math.max(0, Math.min(PARENT_COUNT - 1, Number(data.config.filterParent) || 0));
-                        if (Array.isArray(data.config.filterChild)) {
-                            state.filterChild = [0, 1, 2, 3].map((i) => {
-                                const v = Number(data.config.filterChild[i]);
-                                return Number.isInteger(v) && v >= 0 && v < CHILD_COUNT ? v : 0;
-                            });
+                        if (Array.isArray(data.config.palette) && data.config.palette.length === COLOR_COUNT) {
+                            state.palette = data.config.palette.slice();
                         }
                     }
-                    saveState(); renderPanel(); setStatus("Import complete");
+                    saveState();
+                    renderPanel();
+                    setStatus("Import complete");
                 } catch (e) {
                     setStatus("Loading failed");
                     BF2042Portal.Shared.logError("JS Code Stock import", String(e));
@@ -1878,8 +1923,8 @@
         menusRegistered = true;
     }
 
-    plugin.initializeWorkspace = function () {
-        loadState();
+    plugin.initializeWorkspace = async function () {
+        await loadState(); // IndexedDB から読み込み
         try { registerMenus(); } catch (e) { BF2042Portal.Shared.logError("JS Code Stock menu registration", String(e)); }
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
