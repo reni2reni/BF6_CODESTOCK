@@ -743,7 +743,7 @@
                     const char = String.fromCharCode(65 + state.parents.length);
                     state.parents.push(char);
                     const newChildren = [];
-                    for (let c = 0; c < 10; c++) newChildren.push(char + "-" + c);
+                    for (let c = 0; c < 8; c++) newChildren.push(char + "-" + c);
                     state.children.push(newChildren);
                 }
                 pVal.textContent = state.parentCount;
@@ -774,7 +774,7 @@
             }
         });
         const cPlus = makeButton("+", () => {
-            if (state.childCount < 10) {
+            if (state.childCount < 8) {
                 state.childCount++;
                 // 各親の子フォルダ名が足りなければ自動生成
                 state.children.forEach((arr, pIdx) => {
