@@ -64,7 +64,8 @@
             filterChild: [0, 0, 0, 0],
             filterColor: null,
             currentColor: 0,
-            // ★ ウィンドウ位置とサイズ（初期値）
+            parentCount: 4, // ★ 親タブ数
+            childCount: 6,  // ★ 子タブ数
             windowBounds: { left: null, top: null, width: 400, height: 600 }
         };
     }
@@ -76,6 +77,8 @@
             const saved = JSON.parse(raw);
             const d = cloneDefault();
             state = Object.assign(d, saved);
+            if (!state.parentCount) state.parentCount = 4;
+            if (!state.childCount) state.childCount = 6;
 
             state.filterParent = 0;
             state.filterChild = Array(PARENT_COUNT).fill(0);
@@ -213,6 +216,16 @@
 #js-code-stock-panel .jcs-pin.unlocked{opacity:0.45;filter:grayscale(1)}
 #js-code-stock-panel .jcs-collapse{font-size:13px;padding:3px 5px;background:#333}
 #js-code-stock-panel.collapsed{height:auto!important;min-height:0!important;resize:none}
+#js-code-stock-panel .jcs-gear{font-size:13px;padding:3px 6px;background:#333}
+#jcs-settings-menu{position:fixed;background:#222;border:1px solid #555;border-radius:6px;padding:8px;z-index:2147483647;box-shadow:0 6px 20px rgba(0,0,0,0.8);display:flex;flex-direction:column;gap:6px;min-width:160px}
+#jcs-settings-menu button.jcs-menu-btn{width:100%;padding:5px 8px;font-size:12px;background:#333;color:#fff;border:none;border-radius:3px;cursor:pointer;text-align:center}
+#jcs-settings-menu button.jcs-menu-btn:hover{background:#4a7bd4}
+.jcs-menu-sep{height:1px;background:#444;margin:2px 0}
+.jcs-menu-row{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#ddd;padding:2px 4px}
+.jcs-counter{display:flex;align-items:center;gap:4px}
+.jcs-counter button{width:22px;height:22px;padding:0;text-align:center;font-size:13px;line-height:20px;background:#333;color:#fff;border:1px solid #555;border-radius:3px;cursor:pointer}
+.jcs-counter button:hover{background:#555}
+.jcs-counter span{min-width:18px;text-align:center;font-weight:bold;color:#fff}
 `;
         document.head.appendChild(style);
     }
@@ -684,6 +697,111 @@
         }
     }
 
+    // ⚙️ 設定プルダウンメニュー
+    function showSettingsMenu(anchorBtn) {
+        const old = document.getElementById("jcs-settings-menu");
+        if (old) { old.remove(); return; }
+
+        const rect = anchorBtn.getBoundingClientRect();
+        const menu = document.createElement("div");
+        menu.id = "jcs-settings-menu";
+        menu.style.left = Math.min(rect.left, window.innerWidth - 180) + "px";
+        menu.style.top = (rect.bottom + 4) + "px";
+
+        // EXPORT ボタン
+        const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
+        // IMPORT ボタン
+        const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
+
+        const sep = document.createElement("div");
+        sep.className = "jcs-menu-sep";
+
+        // PARENT カウンター行 [ - 4 + ]
+        const pRow = document.createElement("div");
+        pRow.className = "jcs-menu-row";
+        const pLabel = document.createElement("span");
+        pLabel.textContent = "PARENT";
+        const pCounter = document.createElement("div");
+        pCounter.className = "jcs-counter";
+        const pVal = document.createElement("span");
+        pVal.textContent = state.parentCount;
+
+        const pMinus = makeButton("-", () => {
+            if (state.parentCount > 1) {
+                state.parentCount--;
+                pVal.textContent = state.parentCount;
+                if (state.filterParent >= state.parentCount) state.filterParent = state.parentCount - 1;
+                saveState();
+                renderPanel();
+            }
+        });
+        const pPlus = makeButton("+", () => {
+            if (state.parentCount < 8) {
+                state.parentCount++;
+                // 足りない親フォルダ名と子配列を自動生成
+                while (state.parents.length < state.parentCount) {
+                    const char = String.fromCharCode(65 + state.parents.length);
+                    state.parents.push(char);
+                    const newChildren = [];
+                    for (let c = 0; c < 10; c++) newChildren.push(char + "-" + c);
+                    state.children.push(newChildren);
+                }
+                pVal.textContent = state.parentCount;
+                saveState();
+                renderPanel();
+            }
+        });
+        pCounter.append(pMinus, pVal, pPlus);
+        pRow.append(pLabel, pCounter);
+
+        // CHILD カウンター行 [ - 6 + ]
+        const cRow = document.createElement("div");
+        cRow.className = "jcs-menu-row";
+        const cLabel = document.createElement("span");
+        cLabel.textContent = "CHILD";
+        const cCounter = document.createElement("div");
+        cCounter.className = "jcs-counter";
+        const cVal = document.createElement("span");
+        cVal.textContent = state.childCount;
+
+        const cMinus = makeButton("-", () => {
+            if (state.childCount > 1) {
+                state.childCount--;
+                cVal.textContent = state.childCount;
+                state.filterChild = state.filterChild.map(v => Math.min(v, state.childCount - 1));
+                saveState();
+                renderPanel();
+            }
+        });
+        const cPlus = makeButton("+", () => {
+            if (state.childCount < 10) {
+                state.childCount++;
+                // 各親の子フォルダ名が足りなければ自動生成
+                state.children.forEach((arr, pIdx) => {
+                    const pChar = state.parents[pIdx] || String.fromCharCode(65 + pIdx);
+                    while (arr.length < state.childCount) {
+                        arr.push(pChar + "-" + arr.length);
+                    }
+                });
+                cVal.textContent = state.childCount;
+                saveState();
+                renderPanel();
+            }
+        });
+        cCounter.append(cMinus, cVal, cPlus);
+        cRow.append(cLabel, cCounter);
+
+        menu.append(expBtn, impBtn, sep, pRow, cRow);
+        document.body.appendChild(menu);
+
+        setTimeout(() => {
+            document.addEventListener("click", (e) => {
+                if (!menu.contains(e.target) && e.target !== anchorBtn) {
+                    menu.remove();
+                }
+            }, { once: true });
+        }, 10);
+    }
 
     function renderPanel() {
         if (!panel) return;
@@ -699,20 +817,23 @@
         head.className = "jcs-head";
         const ttl = document.createElement("div");
         ttl.className = "jcs-title";
-        ttl.textContent = "🐛Stock";
+        ttl.textContent = "🐛JS Stock";
         const tools = document.createElement("div");
         tools.className = "jcs-tools";
-        tools.appendChild(makeButton("EXPORT", exportData));
-        tools.appendChild(makeButton("IMPORT", importData));
 
-        // 🔒️ / 🔓️ ピン留め（ロック）ボタン
+        // ★ ⚙️ 設定ボタン（プルダウンメニュー表示）
+        const gearBtn = makeButton("⚙️", (e) => {
+            e.stopPropagation();
+            showSettingsMenu(gearBtn);
+        }, "jcs-gear");
+        gearBtn.title = "設定（EXPORT / IMPORT / タブ数変更）";
+
         const pinBtn = makeButton(isPinned ? "🔒️" : "🔓️", () => {
             isPinned = !isPinned;
             renderPanel();
         }, "jcs-pin" + (isPinned ? "" : " unlocked"));
-        pinBtn.title = isPinned ? "Locked(does not close after use)" : "Unlocked(closes automatically after use)";
+        pinBtn.title = isPinned ? "ロック中（操作後も閉じない）" : "アンロック（操作後に自動で閉じる）";
 
-        // ⬒ / ▉ 折りたたみ（最小化/展開）ボタン
         const collapseBtn = makeButton(isCollapsed ? "▉" : "⬒", () => {
             isCollapsed = !isCollapsed;
             if (isCollapsed && panel.style.height && panel.style.height !== "auto") {
@@ -720,13 +841,13 @@
             }
             renderPanel();
         }, "jcs-collapse");
-        collapseBtn.title = isCollapsed ? "Expand" : "Minimize, leaving only the title";
+        collapseBtn.title = isCollapsed ? "展開する" : "最小化";
 
         const close = makeButton("✕", closePanel, "jcs-close");
         close.title = "Close";
 
-        // 並び順：🔒️ ⬒ ✕
-        tools.append(pinBtn, collapseBtn, close);
+        // 並び順：⚙️ 🔒️ ⬒ ✕
+        tools.append(gearBtn, pinBtn, collapseBtn, close);
         head.append(ttl, tools);
 
         // 最小化（折りたたみ）時はタイトルバーのみ描画して終了
@@ -749,7 +870,7 @@
         // --- 以下は元のタブ・フォーム・リスト描画処理のまま ---
         const parentTabs = document.createElement("div");
         parentTabs.className = "jcs-tabs";
-        state.parents.slice(0, PARENT_COUNT).forEach((name, i) => {
+        state.parents.slice(0, state.parentCount || 4).forEach((name, i) => {
             const b = makeButton(name, () => { state.filterParent = i; renderPanel(); }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -762,7 +883,7 @@
 
         const childTabs = document.createElement("div");
         childTabs.className = "jcs-tabs jcs-child";
-        state.children[state.filterParent].slice(0, CHILD_COUNT).forEach((name, i) => {
+        (state.children[state.filterParent] || []).slice(0, state.childCount || 6).forEach((name, i) => {
             const b = makeButton(name, () => { state.filterChild[state.filterParent] = i; renderPanel(); }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
