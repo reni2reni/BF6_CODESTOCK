@@ -183,7 +183,7 @@
 #js-code-stock-panel #jcs-toggle-input{width:100%;height:30px;background:#444;border:none;color:#fff;cursor:pointer;margin-top:3px;font-size:13px}
 #js-code-stock-panel .jcs-filter{padding:0 0 3px;border-bottom:1px solid #333}
 #js-code-stock-panel .jcs-filter-colors{display:flex;gap:4px;background:transparent;padding:0;overflow:visible;width:100%}
-#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:1;min-width:0;height:18px;padding:0;box-shadow:none;transform:none;border-radius:2px;font-size:11px;display:flex;align-items:center;justify-content:center}
+#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:1;min-width:0;height:24px;padding:0;box-shadow:none;transform:none;border-radius:2px;font-size:11px;display:flex;align-items:center;justify-content:center}
 #js-code-stock-panel .jcs-filter-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-search{height:30px;font-size:18px;margin-top:3px}
 #js-code-stock-panel .jcs-list{flex:1;overflow:auto;margin-top:4px;min-height:0;padding-right:2px}
@@ -774,7 +774,7 @@
             }
         });
         const cPlus = makeButton("+", () => {
-            if (state.childCount < 8) {
+            if (state.childCount < 8) { // ★ 最大値を「8」に変更
                 state.childCount++;
                 // 各親の子フォルダ名が足りなければ自動生成
                 state.children.forEach((arr, pIdx) => {
@@ -788,6 +788,7 @@
                 renderPanel();
             }
         });
+
         cCounter.append(cMinus, cVal, cPlus);
         cRow.append(cLabel, cCounter);
 
