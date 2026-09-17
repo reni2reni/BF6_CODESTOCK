@@ -1475,10 +1475,9 @@
             interactionMode = "blockEntry";
             editingIdValue = null;
             inputHidden = false;
-            state.filterParent = 0;
-            state.filterChild = Array(PARENT_COUNT).fill(0);
 
-            // ★ 折りたたみ中なら一時展開
+            // ★ 親0・子0へのリセットを削除（現在選択中のカテゴリをそのまま維持）
+
             if (isCollapsed) {
                 isTempExpanded = true;
                 isCollapsed = false;
