@@ -49,7 +49,7 @@
     let titleEl = null;
     let bodyEl = null;
     let statusEl = null;
-
+    let folderClipboard = null; // ★ フォルダ丸ごとコピー用（{ type, name, childrenNames, items }）
     let interactionMode = "normal";
     let pendingBlockData = null;
     let lastMouseEvent = null;
@@ -379,7 +379,7 @@
         menu.id = "popupMenu";
         menu.style.position = "fixed";
         let left = e.clientX, top = e.clientY;
-        const menuWidth = 140, menuHeight = 130;
+        const menuWidth = 140, menuHeight = 160;
         if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth - 5;
         if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight - 5;
 
@@ -392,12 +392,13 @@
         menu.style.zIndex = 2147483647;
         menu.style.fontSize = "13px";
 
-        function addOption(name, fn) {
+        function addOption(name, fn, isDanger) {
             const b = document.createElement("div");
             b.textContent = name;
             b.style.cursor = "pointer";
             b.style.padding = "6px 20px";
-            b.onmouseenter = () => b.style.background = "#3a3a3a";
+            if (isDanger) b.style.color = "#ff6b6b";
+            b.onmouseenter = () => b.style.background = isDanger ? "#5a2020" : "#3a3a3a";
             b.onmouseleave = () => b.style.background = "";
             b.onclick = () => {
                 fn();
@@ -426,6 +427,21 @@
         addOption("Paste", () => {
             pasteItems(targetItem);
         });
+
+        // ★ 新規追加：選択アイテムの一括削除
+        addOption("Delete", () => {
+            const count = selectedIds.size;
+            if (count === 0) return;
+            if (confirm(`選択された ${count} 個のアイテムを削除しますか？`)) {
+                state.items = state.items.filter(i => !selectedIds.has(String(i.id)));
+                selectedIds.clear();
+                lastSelected = null;
+                reorderGroup(state.filterParent, state.filterChild[state.filterParent]);
+                saveState();
+                renderList();
+                setStatus(`Deleted ${count} items`);
+            }
+        }, true);
 
         document.body.appendChild(menu);
         setTimeout(() => {
@@ -945,29 +961,26 @@
             panel.style.height = savedPanelHeight;
         }
 
-        // --- 以下は元のタブ・フォーム・リスト描画処理のまま ---
+        // 親タブ
         const parentTabs = document.createElement("div");
         parentTabs.className = "jcs-tabs";
         state.parents.slice(0, state.parentCount || 4).forEach((name, i) => {
             const b = makeButton(name, () => { state.filterParent = i; renderPanel(); }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
-                showPrompt(e.clientX, e.clientY, "Folder name", state.parents[i], (name2) => {
-                    if (name2 && name2.trim()) { state.parents[i] = name2.trim(); saveState(); renderPanel(); }
-                });
+                showFolderMenu(e, "parent", i); // ★ 親フォルダメニューを表示
             };
             parentTabs.appendChild(b);
         });
 
+        // 子タブ
         const childTabs = document.createElement("div");
         childTabs.className = "jcs-tabs jcs-child";
         (state.children[state.filterParent] || []).slice(0, state.childCount || 6).forEach((name, i) => {
             const b = makeButton(name, () => { state.filterChild[state.filterParent] = i; renderPanel(); }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
-                showPrompt(e.clientX, e.clientY, "SubFolder name", state.children[state.filterParent][i], (name2) => {
-                    if (name2 && name2.trim()) { state.children[state.filterParent][i] = name2.trim(); saveState(); renderPanel(); }
-                });
+                showFolderMenu(e, "child", i); // ★ 子フォルダメニューを表示
             };
             childTabs.appendChild(b);
         });
@@ -1359,6 +1372,155 @@
         }
     }
 
+    // カテゴリタブの右クリックメニュー（名称変更 ＆ TAB丸ごとCopy/Paste上書き）
+    function showFolderMenu(e, type, index) {
+        const old = document.getElementById("uiPrompt");
+        if (old) old.remove();
+
+        const isParent = (type === "parent");
+        const currentName = isParent ? state.parents[index] : state.children[state.filterParent][index];
+        const labelTitle = isParent ? "Folder Name (親フォルダ)" : "SubFolder Name (子フォルダ)";
+
+        const box = document.createElement("div");
+        box.id = "uiPrompt";
+        box.style.position = "fixed";
+        box.style.left = Math.min(e.clientX, window.innerWidth - 220) + "px";
+        box.style.top = Math.min(e.clientY, window.innerHeight - 200) + "px";
+        box.style.background = "#1e1e1e";
+        box.style.border = "1px solid #444";
+        box.style.borderRadius = "6px";
+        box.style.padding = "10px";
+        box.style.zIndex = 2147483647;
+        box.style.color = "#ddd";
+        box.style.fontSize = "12px";
+        box.style.boxShadow = "0 6px 18px rgba(0,0,0,0.8)";
+        box.style.minWidth = "190px";
+
+        // 1. 名称変更エリア
+        const t = document.createElement("div");
+        t.textContent = labelTitle;
+        t.style.marginBottom = "6px";
+        t.style.fontWeight = "bold";
+
+        const input = document.createElement("input");
+        input.value = currentName;
+        input.style.width = "100%";
+        input.style.boxSizing = "border-box";
+        input.style.background = "#2a2a2a";
+        input.style.border = "1px solid #555";
+        input.style.color = "#ddd";
+        input.style.padding = "4px";
+        input.style.borderRadius = "3px";
+        input.style.marginBottom = "8px";
+
+        const rowBtn = document.createElement("div");
+        rowBtn.style.display = "flex";
+        rowBtn.style.gap = "6px";
+
+        const ok = makeButton("OK", () => {
+            const val = input.value.trim();
+            if (val) {
+                if (isParent) state.parents[index] = val;
+                else state.children[state.filterParent][index] = val;
+                saveState();
+                renderPanel();
+            }
+            box.remove();
+        });
+        ok.style.flex = "1";
+        ok.style.padding = "4px";
+
+        const cancel = makeButton("Cancel", () => box.remove());
+        cancel.style.flex = "1";
+        cancel.style.padding = "4px";
+        rowBtn.append(ok, cancel);
+
+        // 2. 区切り線
+        const sep = document.createElement("div");
+        sep.style.height = "1px";
+        sep.style.background = "#444";
+        sep.style.margin = "10px 0 8px";
+
+        // 3. Folder Copy ボタン
+        const copyBtn = makeButton("Folder: Copy (TAB丸ごとコピー)", () => {
+            if (isParent) {
+                folderClipboard = {
+                    type: "parent",
+                    name: state.parents[index],
+                    childrenNames: (state.children[index] || []).slice(),
+                    items: state.items.filter(i => i.parent === index).map(i => ({ ...i }))
+                };
+                setStatus(`親フォルダ [${state.parents[index]}] を丸ごとコピーしました`);
+            } else {
+                folderClipboard = {
+                    type: "child",
+                    name: state.children[state.filterParent][index],
+                    items: state.items.filter(i => i.parent === state.filterParent && i.child === index).map(i => ({ ...i }))
+                };
+                setStatus(`子フォルダ [${state.children[state.filterParent][index]}] を丸ごとコピーしました`);
+            }
+            box.remove();
+        });
+        copyBtn.style.width = "100%";
+        copyBtn.style.padding = "5px 6px";
+        copyBtn.style.marginBottom = "6px";
+        copyBtn.style.background = "#2a5298";
+        copyBtn.style.fontSize = "11px";
+        copyBtn.onmouseenter = () => copyBtn.style.background = "#3b6fc9";
+        copyBtn.onmouseleave = () => copyBtn.style.background = "#2a5298";
+
+        // 4. Folder Paste ボタン（上書き）
+        const canPaste = folderClipboard && (folderClipboard.type === type);
+        const pasteBtn = makeButton("Folder: Paste (TAB上書き貼付)", () => {
+            if (!folderClipboard) return;
+            if (folderClipboard.type !== type) {
+                alert(`コピー元の種類が異なります（現在「${folderClipboard.type === "parent" ? "親" : "子"}」フォルダをコピー中）`);
+                return;
+            }
+
+            if (!confirm(`現在のTAB [${currentName}] を [${folderClipboard.name}] で丸ごと上書きしますか？\n※このTAB内の既存コードはすべて置き換わります。`)) {
+                return;
+            }
+
+            if (isParent) {
+                state.parents[index] = folderClipboard.name;
+                if (Array.isArray(folderClipboard.childrenNames)) {
+                    state.children[index] = folderClipboard.childrenNames.slice();
+                }
+                state.items = state.items.filter(i => i.parent !== index);
+                folderClipboard.items.forEach(i => {
+                    state.items.push({ ...i, id: uid(), parent: index });
+                });
+                setStatus(`親フォルダ [${folderClipboard.name}] を上書き貼り付けしました`);
+            } else {
+                const pIdx = state.filterParent;
+                state.children[pIdx][index] = folderClipboard.name;
+                state.items = state.items.filter(i => !(i.parent === pIdx && i.child === index));
+                folderClipboard.items.forEach(i => {
+                    state.items.push({ ...i, id: uid(), parent: pIdx, child: index });
+                });
+                setStatus(`子フォルダ [${folderClipboard.name}] を上書き貼り付けしました`);
+            }
+
+            saveState();
+            renderPanel();
+            box.remove();
+        });
+        pasteBtn.style.width = "100%";
+        pasteBtn.style.padding = "5px 6px";
+        pasteBtn.style.background = canPaste ? "#3d4b3d" : "#333";
+        pasteBtn.style.color = canPaste ? "#fff" : "#777";
+        pasteBtn.style.fontSize = "11px";
+        if (canPaste) {
+            pasteBtn.onmouseenter = () => pasteBtn.style.background = "#4e6a4e";
+            pasteBtn.onmouseleave = () => pasteBtn.style.background = "#3d4b3d";
+        }
+
+        box.append(t, input, rowBtn, sep, copyBtn, pasteBtn);
+        document.body.appendChild(box);
+        input.focus();
+        input.select();
+    }
     function ensureVariableExists(ws, name, type) {
         try {
             const varMap = ws.getVariableMap();
