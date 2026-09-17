@@ -1379,7 +1379,7 @@
 
         const isParent = (type === "parent");
         const currentName = isParent ? state.parents[index] : state.children[state.filterParent][index];
-        const labelTitle = isParent ? "Folder Name (親フォルダ)" : "SubFolder Name (子フォルダ)";
+        const labelTitle = isParent ? "Folder Name" : "SubFolder Name";
 
         const box = document.createElement("div");
         box.id = "uiPrompt";
@@ -1442,7 +1442,7 @@
         sep.style.margin = "10px 0 8px";
 
         // 3. Folder Copy ボタン
-        const copyBtn = makeButton("Folder: Copy (TAB丸ごとコピー)", () => {
+        const copyBtn = makeButton("Folder: Copy", () => {
             if (isParent) {
                 folderClipboard = {
                     type: "parent",
@@ -1450,14 +1450,14 @@
                     childrenNames: (state.children[index] || []).slice(),
                     items: state.items.filter(i => i.parent === index).map(i => ({ ...i }))
                 };
-                setStatus(`親フォルダ [${state.parents[index]}] を丸ごとコピーしました`);
+                setStatus(`I copied the entire [${state.parents[index]}] parent folder.`);
             } else {
                 folderClipboard = {
                     type: "child",
                     name: state.children[state.filterParent][index],
                     items: state.items.filter(i => i.parent === state.filterParent && i.child === index).map(i => ({ ...i }))
                 };
-                setStatus(`子フォルダ [${state.children[state.filterParent][index]}] を丸ごとコピーしました`);
+                setStatus(`I copied the entire [${state.children[state.filterParent][index]}] subfolder.`);
             }
             box.remove();
         });
@@ -1471,14 +1471,14 @@
 
         // 4. Folder Paste ボタン（上書き）
         const canPaste = folderClipboard && (folderClipboard.type === type);
-        const pasteBtn = makeButton("Folder: Paste (TAB上書き貼付)", () => {
+        const pasteBtn = makeButton("Folder: Paste", () => {
             if (!folderClipboard) return;
             if (folderClipboard.type !== type) {
-                alert(`コピー元の種類が異なります（現在「${folderClipboard.type === "parent" ? "親" : "子"}」フォルダをコピー中）`);
+                alert(`The source type is different (currently[${folderClipboard.type === "parent" ? "parent" : "child"}]Copying folder...)`);
                 return;
             }
 
-            if (!confirm(`現在のTAB [${currentName}] を [${folderClipboard.name}] で丸ごと上書きしますか？\n※このTAB内の既存コードはすべて置き換わります。`)) {
+            if (!confirm(`Current TAB [${currentName}] of [${folderClipboard.name}] Do you want to overwrite the entire file?\n*All existing code within this TAB will be replaced.`)) {
                 return;
             }
 
@@ -1491,7 +1491,7 @@
                 folderClipboard.items.forEach(i => {
                     state.items.push({ ...i, id: uid(), parent: index });
                 });
-                setStatus(`親フォルダ [${folderClipboard.name}] を上書き貼り付けしました`);
+                setStatus(`I pasted the contents into the [${folderClipboard.name}] parent folder, overwriting the existing files.`);
             } else {
                 const pIdx = state.filterParent;
                 state.children[pIdx][index] = folderClipboard.name;
