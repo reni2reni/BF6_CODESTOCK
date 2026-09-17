@@ -857,92 +857,144 @@
             return;
         }
 
-        if (!confirm("PORTALの全ブロックと部品をカテゴリ・色別にCodeStockへ取り込みますか？\n※既存のスニペットに公式カテゴリ別で一括追加されます。")) {
+        if (!confirm("指定のカテゴリ構成（OTHER, Blocks1, Blocks2, element1, element2, element3）でPORTALブロックを取り込みますか？\n※カテゴリタブが再構成され、各部品が色別で取り込まれます。")) {
             return;
         }
 
-        setStatus("Blocks取り込み中...");
+        setStatus("Blocks仕分け取り込み中...");
 
-        // 1. メモリやDOM上に動的ブロック定義があれば収集
-        const detectedBlocks = new Set();
-        try {
-            if (typeof _Blockly !== "undefined" && _Blockly.Blocks) {
-                Object.keys(_Blockly.Blocks).forEach(t => detectedBlocks.add(t));
-            }
-            if (typeof Blockly !== "undefined" && Blockly.Blocks) {
-                Object.keys(Blockly.Blocks).forEach(t => detectedBlocks.add(t));
-            }
-            // ワークスペース上の既存ブロックも収集
-            ws.getAllBlocks(false).forEach(b => { if (b.type) detectedBlocks.add(b.type); });
-        } catch (_) { }
+        // パレットカラーのインデックス定義
+        // 0:赤, 1:オレンジ, 2:黄色, 3:緑, 4:青, 5:紫(赤紫/青紫), 6:グレー, 7:白
+        const COLOR_PURPLE_RED = 5; // 赤紫
+        const COLOR_ORANGE = 1; // オレンジ
+        const COLOR_BLUE_PURPLE = 4; // 青紫 (Blue/Purple)
+        const COLOR_YELLOW = 2; // 黄色
+        const COLOR_GREEN = 3; // 緑
 
-        // 2. 親・子カテゴリ数を最大（8x8）に自動拡張
-        state.parentCount = 8;
-        state.childCount = 8;
+        // 指定の6大親カテゴリと子カテゴリ・色のマスタ定義
+        const CUSTOM_PORTAL_STRUCTURE = [
+            {
+                parentName: "OTHER",
+                children: [
+                    { name: "RULES", color: COLOR_PURPLE_RED, blocks: ["ruleBlock", "conditionBlock", "actionsBlock", "ongoingGlobal", "ongoingEachPlayer"] },
+                    { name: "SUBROUTINES", color: COLOR_ORANGE, blocks: ["subroutineBlock", "subroutineArgumentBlock", "subroutineCallBlock"] },
+                    { name: "CONTROL ACTIONS", color: COLOR_BLUE_PURPLE, blocks: ["PauseRule", "UnpauseRule", "SkipToRule", "Break", "Continue", "Return", "Wait", "Abort", "AbortIf"] }
+                ]
+            },
+            {
+                parentName: "Blocks1",
+                children: [
+                    { name: "AI", color: COLOR_YELLOW, blocks: ["SpawnAIPawn", "SetAIPawnTarget", "DestroyAIPawn", "SetAIMoveSpeed", "SetAIEngagementDistance"] },
+                    { name: "ARRAYS", color: COLOR_YELLOW, blocks: ["AppendToArray", "RemoveFromArray", "SetArrayElement", "SortArray", "RandomizeArray", "ReverseArray"] },
+                    { name: "AUDIO", color: COLOR_YELLOW, blocks: ["PlayAudio", "StopAudio", "PlaySoundAtPosition", "SetAudioVolume"] },
+                    { name: "CAMERA", color: COLOR_YELLOW, blocks: ["SetCameraMode", "SetCameraPosition", "SetCameraRotation", "ResetCamera"] },
+                    { name: "EFFECTS", color: COLOR_YELLOW, blocks: ["SpawnParticleEffect", "DestroyEffect", "PlayVFX", "SetEffectParameters"] },
+                    { name: "EMPLACEMENTS", color: COLOR_YELLOW, blocks: ["SpawnEmplacement", "DestroyEmplacement", "SetEmplacementOwner"] },
+                    { name: "GAMEPLAY", color: COLOR_YELLOW, blocks: ["SetTeamScore", "EndGameMode", "SetMatchTime", "SetScoreboardVisibility", "EnableGameModeObjective"] }
+                ]
+            },
+            {
+                parentName: "Blocks2",
+                children: [
+                    { name: "LOGIC", color: COLOR_YELLOW, blocks: ["If", "While", "For", "SetVariable"] },
+                    { name: "OBJECTIVE", color: COLOR_YELLOW, blocks: ["SetCapturePointState", "SetCapturePointOwner", "SetObjectiveProgress", "LockCapturePoint"] },
+                    { name: "PLAYER", color: COLOR_YELLOW, blocks: ["SetPlayerHealth", "Kill", "Teleport", "SetPlayerInventory", "SetPlayerSpeed", "SetPlayerAmmo", "Resupply", "ForceRevive", "SpotPlayer", "SetPlayerCamera"] },
+                    { name: "TRANSFORM", color: COLOR_YELLOW, blocks: ["SetPosition", "SetRotation", "SetLinearVelocity", "SetAngularVelocity"] },
+                    { name: "UI", color: COLOR_YELLOW, blocks: ["DisplayNotificationMessage", "DisplayHighlightedWorldLogMessage", "ClearNotificationMessage"] },
+                    { name: "USER INTERFACE", color: COLOR_YELLOW, blocks: ["DisplayCustomMessage", "SetUIWidgetVisibility", "SetUIWidgetPosition", "SetUIWidgetColor"] },
+                    { name: "VEHICLES", color: COLOR_YELLOW, blocks: ["SpawnVehicle", "DestroyVehicle", "SetVehicleHealth", "RepairVehicle", "SetVehicleTeam", "EjectAllPlayers"] }
+                ]
+            },
+            {
+                parentName: "element1",
+                children: [
+                    { name: "AI", color: COLOR_GREEN, blocks: ["GetAIPawnState", "GetAITarget", "IsAIPawn"] },
+                    { name: "ARRAYS", color: COLOR_GREEN, blocks: ["CreateArray", "ArraySlice", "FirstOf", "LastOf", "ArrayLength", "IndexOf", "EmptyArray"] },
+                    { name: "AUDIO", color: COLOR_GREEN, blocks: ["GetAudioVolume", "IsAudioPlaying"] },
+                    { name: "CAMERA", color: COLOR_GREEN, blocks: ["GetCameraPosition", "GetCameraRotation"] },
+                    { name: "EFFECTS", color: COLOR_GREEN, blocks: ["GetActiveEffects"] },
+                    { name: "EVENT PAYLOADS", color: COLOR_GREEN, blocks: ["EventPlayer", "EventOtherPlayer", "EventTeam", "EventVehicle", "EventDamage", "EventWeapon"] }
+                ]
+            },
+            {
+                parentName: "element2",
+                children: [
+                    { name: "GAMEPLAY", color: COLOR_GREEN, blocks: ["GetTeamScore", "GetCurrentGameMode", "GetRemainingGameTime", "GetTargetScore", "IsGameModeActive"] },
+                    { name: "LOGIC", color: COLOR_GREEN, blocks: ["Compare", "Equals", "NotEquals", "GreaterThan", "LessThan", "GreaterThanOrEqual", "LessThanOrEqual", "And", "Or", "Not"] },
+                    { name: "MATH", color: COLOR_GREEN, blocks: ["MathNumber", "Add", "Subtract", "Multiply", "Divide", "Modulo", "Absolute", "Min", "Max", "Round", "Floor", "Ceil", "Sqrt", "Power", "RandomReal", "RandomInteger", "Sin", "Cos", "PI"] },
+                    { name: "OBJECTIVE", color: COLOR_GREEN, blocks: ["GetCapturePointOwner", "GetCapturePointProgress", "IsCapturePointLocked"] },
+                    { name: "OTHER", color: COLOR_GREEN, blocks: ["CurrentTime", "DeltaTime", "TickRate"] },
+                    { name: "PERFORMANCE", color: COLOR_GREEN, blocks: ["ServerTickRate", "MemoryUsage", "NetworkLatency"] }
+                ]
+            },
+            {
+                parentName: "element3",
+                children: [
+                    { name: "PLAYER", color: COLOR_GREEN, blocks: ["GetPlayers", "GetPlayerState", "GetPlayerHealth", "GetPlayerTeam", "GetPlayerPosition", "GetPlayerVehicle", "IsAlive", "IsManDown", "IsInVehicle", "IsPlayerAiming", "GetPlayerSpeed", "GetPlayerName"] },
+                    { name: "TRANSFORM", color: COLOR_GREEN, blocks: ["CreateVector", "VectorX", "VectorY", "VectorZ", "DistanceBetween", "VectorAdd", "VectorSubtract", "VectorMultiply", "DotProduct", "CrossProduct", "DirectionTo"] },
+                    { name: "USER INTERFACE", color: COLOR_GREEN, blocks: ["GetUIWidgetState", "IsUIVisible"] },
+                    { name: "VEHICLES", color: COLOR_GREEN, blocks: ["GetVehicleState", "GetVehicleHealth", "GetVehicleDriver", "GetVehicleOccupants"] },
+                    { name: "SELECTION LISTS", color: COLOR_GREEN, blocks: ["SoldierClass", "VehicleType", "WeaponType", "InventorySlot", "TeamId"] },
+                    { name: "LITERALS", color: COLOR_GREEN, blocks: ["True", "False", "Null", "EmptyString"] },
+                    { name: "VARIABLES", color: COLOR_GREEN, blocks: ["variableReferenceBlock", "GetVariable", "GlobalVariable", "PlayerVariable"] }
+                ]
+            }
+        ];
+
+        // 1. 親・子のタブ数を構造に合わせて設定
+        state.parentCount = 6;
+        state.childCount = 7;
+        state.filterParent = 0;
+        state.filterChild = [0, 0, 0, 0, 0, 0, 0, 0];
 
         let totalImported = 0;
 
-        // 3. 全8カテゴリを展開してブロックを取り込む
-        PORTAL_BLOCK_CATALOG.forEach((cat, pIdx) => {
-            state.parents[pIdx] = cat.name;
-
-            // 子カテゴリ名の設定
+        // 2. 指定構成を展開してCodeStockへ追加
+        CUSTOM_PORTAL_STRUCTURE.forEach((pGroup, pIdx) => {
+            state.parents[pIdx] = pGroup.parentName;
             if (!state.children[pIdx]) state.children[pIdx] = [];
-            for (let c = 0; c < 8; c++) {
-                state.children[pIdx][c] = cat.name.split(" ")[0].slice(0, 4) + "-" + c;
-            }
 
-            // カタログのブロック一覧に対象カテゴリの動的ブロックもマージ
-            const blockList = cat.blocks.slice();
-            detectedBlocks.forEach(t => {
-                if (t.toLowerCase().includes(cat.name.split(" ")[0].toLowerCase()) && !blockList.includes(t)) {
-                    blockList.push(t);
-                }
-            });
+            pGroup.children.forEach((cGroup, cIdx) => {
+                state.children[pIdx][cIdx] = cGroup.name;
 
-            const colorIdx = getClosestColorIndex(cat.color);
-            const chunkSize = Math.ceil(blockList.length / 8);
-
-            blockList.forEach((blockType, idx) => {
-                const cIdx = Math.min(Math.floor(idx / Math.max(chunkSize, 1)), 7);
-
-                // ブロックのシリアライズデータ作成
-                let blockData = null;
-                let finalColorIdx = colorIdx;
-
-                try {
-                    const temp = ws.newBlock(blockType);
-                    if (temp) {
-                        try { if (temp.initSvg) temp.initSvg(); } catch (_) { }
-                        blockData = extractBlockForClipboard(temp);
-                        if (typeof temp.getColour === "function") {
-                            finalColorIdx = getClosestColorIndex(temp.getColour());
+                cGroup.blocks.forEach((blockType) => {
+                    let blockData = null;
+                    try {
+                        const temp = ws.newBlock(blockType);
+                        if (temp) {
+                            try { if (temp.initSvg) temp.initSvg(); } catch (_) { }
+                            blockData = extractBlockForClipboard(temp);
+                            temp.dispose(false);
                         }
-                        temp.dispose(false);
+                    } catch (_) {
+                        blockData = { type: blockType };
                     }
-                } catch (_) {
-                    blockData = { type: blockType };
-                }
 
-                if (!blockData) blockData = { type: blockType };
+                    if (!blockData) blockData = { type: blockType };
 
-                state.items.push({
-                    id: uid(),
-                    title: blockType,
-                    body: JSON.stringify(blockData, null, 2),
-                    parent: pIdx,
-                    child: cIdx,
-                    order: state.items.length,
-                    color: finalColorIdx
+                    state.items.push({
+                        id: uid(),
+                        title: blockType,
+                        body: JSON.stringify(blockData, null, 2),
+                        parent: pIdx,
+                        child: cIdx,
+                        order: state.items.length,
+                        color: cGroup.color
+                    });
+                    totalImported++;
                 });
-                totalImported++;
             });
+
+            // 子タブの空き枠があれば埋める
+            while (state.children[pIdx].length < 7) {
+                state.children[pIdx].push("Sub-" + state.children[pIdx].length);
+            }
         });
 
         saveState();
         renderPanel();
-        alert("🎉 PORTAL Blocks の取り込みが完了しました！\n取得ブロック数: " + totalImported + " 個\n（親カテゴリ8個・各色別に分類されました）");
-        setStatus("Imported " + totalImported + " blocks");
+        alert(`🎉 取り込み完了！\n合計 ${totalImported} 個のブロックを指定の6大カテゴリ＆色別で整理しました！`);
+        setStatus(`Imported ${totalImported} blocks in 6 categories`);
     }
 
     // ⚙️ 設定プルダウンメニュー
