@@ -745,6 +745,157 @@
         }
     }
 
+    // 色の距離（RGB）を計算して8色パレットから一番近い色番号を自動判定
+    function getClosestColorIndex(hexColor) {
+        if (!hexColor) return 0;
+        let c = hexColor.replace("#", "");
+        if (c.length === 3) c = c.split("").map(x => x + x).join("");
+        const num = parseInt(c, 16);
+        if (isNaN(num)) return 0;
+        const r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+
+        let bestIdx = 0;
+        let minDiff = Infinity;
+        state.palette.forEach((palHex, idx) => {
+            let p = palHex.replace("#", "");
+            if (p.length === 3) p = p.split("").map(x => x + x).join("");
+            const pNum = parseInt(p, 16);
+            const pr = (pNum >> 16) & 255, pg = (pNum >> 8) & 255, pb = pNum & 255;
+            const diff = Math.hypot(r - pr, g - pg, b - pb);
+            if (diff < minDiff) {
+                minDiff = diff;
+                bestIdx = idx;
+            }
+        });
+        return bestIdx;
+    }
+
+    // PORTAL Blocks の自動抽出＆CodeStockへの取り込み処理
+    function importPortalBlocks() {
+        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+        if (!ws) {
+            alert("ワークスペースが見つかりません。エディタ上で実行してください。");
+            return;
+        }
+
+        if (!confirm("PORTALの全ブロックと部品を自動取得してCodeStockに取り込みますか？\n※既存のスニペットにカテゴリ別で追加されます。")) {
+            return;
+        }
+
+        setStatus("Blocks取得中...");
+
+        // ツールボックスから全カテゴリとブロックを抽出
+        let treeContents = null;
+        if (ws.options && ws.options.languageTree) {
+            treeContents = ws.options.languageTree.contents || ws.options.languageTree;
+        }
+        if (!treeContents && ws.getToolbox && ws.getToolbox()) {
+            const tb = ws.getToolbox();
+            if (tb.toolboxDef_) treeContents = tb.toolboxDef_.contents || tb.toolboxDef_;
+        }
+
+        const categories = [];
+        if (Array.isArray(treeContents)) {
+            treeContents.forEach(item => {
+                if (item.kind === "category" || item.custom) {
+                    categories.push(item);
+                }
+            });
+        }
+
+        let totalImported = 0;
+        let pIdx = 0;
+
+        if (categories.length > 0) {
+            // 親カテゴリ数を最大8に合わせて拡張
+            state.parentCount = Math.min(8, Math.max(state.parentCount || 4, categories.length));
+
+            categories.slice(0, 8).forEach((cat, cIdx) => {
+                const catName = cat.name || ("Cat " + (cIdx + 1));
+                state.parents[cIdx] = catName;
+
+                // 子カテゴリ・ブロックの抽出
+                const blocksInCat = [];
+                if (Array.isArray(cat.contents)) {
+                    cat.contents.forEach(sub => {
+                        if (sub.kind === "block" && sub.type) {
+                            blocksInCat.push(sub.type);
+                        } else if (sub.kind === "category" && Array.isArray(sub.contents)) {
+                            sub.contents.forEach(b => { if (b.type) blocksInCat.push(b.type); });
+                        }
+                    });
+                }
+
+                // 子タブにブロックを分散して格納（1子タブあたり最大10個程度）
+                if (blocksInCat.length > 0) {
+                    const chunkSize = Math.ceil(blocksInCat.length / Math.min(state.childCount || 6, 8));
+                    let childIndex = 0;
+
+                    for (let i = 0; i < blocksInCat.length; i++) {
+                        const blockType = blocksInCat[i];
+                        childIndex = Math.min(Math.floor(i / Math.max(chunkSize, 1)), (state.childCount || 6) - 1);
+
+                        try {
+                            const temp = ws.newBlock(blockType);
+                            if (temp) {
+                                if (typeof temp.initSvg === "function") temp.initSvg();
+                                const blockData = extractBlockForClipboard(temp);
+                                const blockColorHex = typeof temp.getColour === "function" ? temp.getColour() : cat.colour;
+                                const colorIdx = getClosestColorIndex(blockColorHex);
+
+                                temp.dispose(false);
+
+                                if (blockData) {
+                                    state.items.push({
+                                        id: uid(),
+                                        title: blockType,
+                                        body: JSON.stringify(blockData, null, 2),
+                                        parent: cIdx,
+                                        child: childIndex,
+                                        order: state.items.length,
+                                        color: colorIdx
+                                    });
+                                    totalImported++;
+                                }
+                            }
+                        } catch (_) { }
+                    }
+                }
+            });
+        } else {
+            // フォールバック：Blockly.Blocks の登録一覧から抽出
+            const blockTypes = Object.keys(_Blockly.Blocks || {});
+            blockTypes.forEach((type, idx) => {
+                try {
+                    const temp = ws.newBlock(type);
+                    if (temp) {
+                        const blockData = extractBlockForClipboard(temp);
+                        const colorIdx = getClosestColorIndex(typeof temp.getColour === "function" ? temp.getColour() : null);
+                        temp.dispose(false);
+
+                        if (blockData) {
+                            state.items.push({
+                                id: uid(),
+                                title: type,
+                                body: JSON.stringify(blockData, null, 2),
+                                parent: 0,
+                                child: Math.min(Math.floor(idx / 10), (state.childCount || 6) - 1),
+                                order: state.items.length,
+                                color: colorIdx
+                            });
+                            totalImported++;
+                        }
+                    }
+                } catch (_) { }
+            });
+        }
+
+        saveState();
+        renderPanel();
+        alert("PORTAL Blocksの取り込みが完了しました！\n取得ブロック数: " + totalImported + " 個");
+        setStatus("Imported " + totalImported + " blocks");
+    }
+
     // ⚙️ 設定プルダウンメニュー
     function showSettingsMenu(anchorBtn) {
         const old = document.getElementById("jcs-settings-menu");
@@ -753,8 +904,18 @@
         const rect = anchorBtn.getBoundingClientRect();
         const menu = document.createElement("div");
         menu.id = "jcs-settings-menu";
-        menu.style.left = Math.min(rect.left, window.innerWidth - 180) + "px";
+        menu.style.left = Math.min(rect.left, window.innerWidth - 200) + "px";
         menu.style.top = (rect.bottom + 4) + "px";
+
+        // ★ PORTAL Blocks 一括取得ボタン
+        const getBlocksBtn = makeButton("📥 IMPORT PORTAL BLOCKS", () => {
+            menu.remove();
+            importPortalBlocks();
+        }, "jcs-menu-btn");
+        getBlocksBtn.style.background = "#2a5298";
+        getBlocksBtn.style.fontWeight = "bold";
+        getBlocksBtn.onmouseenter = () => getBlocksBtn.style.background = "#3b6fc9";
+        getBlocksBtn.onmouseleave = () => getBlocksBtn.style.background = "#2a5298";
 
         // EXPORT ボタン
         const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
@@ -840,7 +1001,7 @@
         const sep2 = document.createElement("div");
         sep2.className = "jcs-menu-sep";
 
-        // ★ 一番下の初期化ボタン（全データを完全リセット）
+        // 初期化ボタン
         const resetBtn = makeButton("RESET ALL DATA", () => {
             if (confirm("すべてのスニペット、カテゴリ名、設定を初期状態にリセットしますか？\n※この操作は取り消せません。")) {
                 state = cloneDefault();
@@ -854,7 +1015,7 @@
         resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
         resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
 
-        menu.append(expBtn, impBtn, sep1, pRow, cRow, sep2, resetBtn);
+        menu.append(getBlocksBtn, sep1, expBtn, impBtn, pRow, cRow, sep2, resetBtn);
         document.body.appendChild(menu);
 
         setTimeout(() => {
