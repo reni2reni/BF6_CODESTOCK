@@ -763,7 +763,7 @@
         const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
 
         // 2. タグ専用 TagsExport / TagsImport ボタン
-        const tagsExpBtn = makeButton("TagsExport（選択タグ保存）", () => {
+        const tagsExpBtn = makeButton("TagsExport（Save Tags）", () => {
             exportCurrentTagData();
             menu.remove();
         }, "jcs-menu-btn");
@@ -771,7 +771,7 @@
         tagsExpBtn.onmouseenter = () => tagsExpBtn.style.background = "#4e6a4e";
         tagsExpBtn.onmouseleave = () => tagsExpBtn.style.background = "#3d4b3d";
 
-        const tagsImpBtn = makeButton("TagsImport（現在タグへ追加）", () => {
+        const tagsImpBtn = makeButton("TagsImport（Add Tags）", () => {
             importCurrentTagData();
             menu.remove();
         }, "jcs-menu-btn");
