@@ -1394,7 +1394,7 @@
         box.style.color = "#ddd";
         box.style.fontSize = "12px";
         box.style.boxShadow = "0 6px 18px rgba(0,0,0,0.8)";
-        box.style.minWidth = "190px";
+        box.style.minWidth = "100px";
 
         // 1. 名称変更エリア
         const t = document.createElement("div");
