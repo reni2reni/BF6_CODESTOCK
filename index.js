@@ -18,8 +18,14 @@
         ["D-1", "D-2", "D-3", "D-4", "D-5", "D-6"]
     ];
     const DEFAULT_PALETTE = [
-        "#e74c3c", "#cc802aff", "#ddb71eff", "#2ecc71",
-        "#348adbff", "#5334dbff", "#9b59b6", "#ffffff"
+        "#21ab6f",
+        "#caaf16",
+        "#593ed0",
+        "#b536ce",
+        "#136fa4",
+        "#cc6119",
+        "#ad0000",
+        "#8f8f8f"
     ];
 
     let state = {
