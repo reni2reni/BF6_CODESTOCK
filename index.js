@@ -2360,22 +2360,85 @@
     }
 
     function nextOrder() {
-        const group = state.items.filter(x =>
-            x.parent === state.filterParent &&
-            x.child === state.filterChild[state.filterParent]
-        );
+        if (!Array.isArray(state.items)) return 0;
+        const p = state.filterParent || 0;
+        const c = (state.filterChild && state.filterChild[p]) || 0;
+        const group = state.items.filter(x => x && x.parent === p && x.child === c);
         return group.length;
     }
 
-    function editItem(item) {
-        editingIdValue = item.id;
+    // アイテムの追加・更新（何があっても確実にクリア＆閉じる鉄壁処理）
+    function addItem() {
+        try {
+            const title = titleEl && titleEl.value.trim();
+            const body = bodyEl ? bodyEl.value : "";
+            if (!title) return setStatus("Code name is required");
+
+            const p = state.filterParent || 0;
+            const c = (state.filterChild && state.filterChild[p]) || 0;
+
+            if (editingIdValue) {
+                // EDIT（更新）時
+                const item = state.items.find(x => x && x.id === editingIdValue);
+                if (item) {
+                    item.title = title;
+                    item.body = body;
+                    item.parent = p;
+                    item.child = c;
+                    item.color = state.currentColor || 0;
+                }
+            } else {
+                // ★ 新規追加時（安全に末尾追加）
+                state.items.push({
+                    id: uid(),
+                    title: title,
+                    body: body,
+                    parent: p,
+                    child: c,
+                    order: nextOrder(),
+                    color: state.currentColor || 0,
+                    iconCoord: pendingIconCoord || null
+                });
+                scrollToBottomOnRender = true;
+            }
+        } catch (err) {
+            console.error("[JS Code Stock] addItem error:", err);
+        }
+
+        // ★ 1. 状態を完全リセット
+        pendingIconCoord = null;
+        editingIdValue = null;
         lastEditingId = null;
-        state.filterParent = item.parent;
-        state.filterChild[item.parent] = item.child;
-        state.currentColor = item.color || 0;
-        inputHidden = false;
+        interactionMode = "normal";
+        pendingBlockData = null;
+        pendingBlockTitle = null;
+        pendingBlockBody = null;
+
+        // ★ 2. 入力欄を完全にクリア
+        if (titleEl) titleEl.value = "";
+        if (bodyEl) bodyEl.value = "";
+        if (inputIconPreview) inputIconPreview.style.display = "none";
+
+        // ★ 3. 入力欄を確実に閉じる（新規ADDでも100%実行）
+        inputHidden = true;
+
+        try { saveState(); } catch (_) { }
+
+        // 一時展開されていた場合は折りたたみ
+        if (isTempExpanded) {
+            isTempExpanded = false;
+            isCollapsed = true;
+            renderPanel();
+            return;
+        }
+
+        // アンロック（🔓️）状態ならパネルごと閉じる
+        if (!isPinned) {
+            closePanel();
+            return;
+        }
+
         renderPanel();
-        if (titleEl) titleEl.focus();
     }
 
     function cancelEdit() {
