@@ -355,7 +355,7 @@
 #js-code-stock-panel .jcs-tree-parent:hover{color:#ccc;background:rgba(255,255,255,0.04)}
 #js-code-stock-panel .jcs-tree-parent.active{border:none;background:transparent;color:#888}
 
-#js-code-stock-panel .jcs-tree-child{font-size:12.5px;color:#aaa;padding:4px 8px 4px 14px;border-radius:2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:2px solid transparent;display:block;margin-bottom:1px}
+#js-code-stock-panel .jcs-tree-child{font-size:14px;color:#aaa;padding:4px 8px 4px 14px;border-radius:2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:2px solid transparent;display:block;margin-bottom:1px}
 #js-code-stock-panel .jcs-tree-child:hover{background:#2a2a2a;color:#ddd}
 #js-code-stock-panel .jcs-tree-child.active{color:#fff;background:#35363a;font-weight:bold;border-left-color:#2ecc71}
 
