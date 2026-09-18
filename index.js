@@ -17,6 +17,7 @@
         ["C-1", "C-2", "C-3", "C-4", "C-5", "C-6"],
         ["D-1", "D-2", "D-3", "D-4", "D-5", "D-6"]
     ];
+
     const DEFAULT_PALETTE = [
         "#21ab6f",
         "#caaf16",
@@ -332,7 +333,7 @@
 #js-code-stock-panel .jcs-tab.active{background:#35363a;color:#fff;z-index:3;box-shadow:-2px 0 0 0 #fff,2px 0 0 0 #fff,0 -2px 0 0 #fff}
 #js-code-stock-panel .jcs-child{flex-shrink:0;height:36px;margin-bottom:4px}
 #js-code-stock-panel .jcs-colors{flex-shrink:0;display:flex;gap:4px;background:transparent;padding:0 0 3px;overflow:visible;width:100%}
-#js-code-stock-panel .jcs-colors .jcs-tab{flex:1;min-width:0;height:18px;padding:0;box-shadow:none;transform:none;border-radius:2px}
+#js-code-stock-panel .jcs-colors .jcs-tab{flex:1;min-width:0;height:24px;padding:0;box-shadow:none;transform:none;border-radius:2px}
 #js-code-stock-panel .jcs-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 
 #js-code-stock-panel .jcs-input-section{flex-shrink:0;margin-bottom:6px}
@@ -1101,13 +1102,17 @@
                     titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
                     bodyEl.value = preservedBody !== null ? preservedBody : item.body;
                 }
-                titleEl.style.borderLeft = "6px solid " + state.palette[item.color || 0];
+
+                // ★ 修正：カラータグをクリックした時、選んだ色（state.currentColor）が名称左のラインに即時反映
+                titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
                 titleEl.style.paddingLeft = "6px";
             }
         } else {
             lastEditingId = null;
             if (preservedTitle !== null) titleEl.value = preservedTitle;
             if (preservedBody !== null) bodyEl.value = preservedBody;
+
+            // ★ 新規入力時も選んだ色を即時反映
             titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
             titleEl.style.paddingLeft = "6px";
         }
