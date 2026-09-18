@@ -1225,30 +1225,23 @@
             inputRow.classList.add("jcs-hidden");
             colorTabs.classList.add("jcs-hidden");
         } else if (hasEditingId()) {
-            const item = state.items.find(x => x.id === editingIdValue);
+            // ★ 安全なID比較でアイテムを確実に特定
+            const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
             if (item) {
-                if (lastEditingId !== editingIdValue) {
-                    titleEl.value = item.title;
-                    bodyEl.value = item.body;
-                    lastEditingId = editingIdValue;
-                } else {
-                    titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
-                    bodyEl.value = preservedBody !== null ? preservedBody : item.body;
-                }
-                titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
+                titleEl.value = item.title || "";
+                bodyEl.value = item.body || "";
+                titleEl.style.borderLeft = "6px solid " + (state.palette[state.currentColor] || "#fff");
                 titleEl.style.paddingLeft = "6px";
             }
         } else {
             lastEditingId = null;
 
-            // ★ ブロックから登録で開いた時：準備されたコードと名称を確実にセット！
             if (interactionMode === "blockEntry" && pendingBlockTitle !== null) {
                 titleEl.value = pendingBlockTitle;
                 bodyEl.value = pendingBlockBody;
-                pendingBlockTitle = null; // 初回代入後にクリア
+                pendingBlockTitle = null;
                 pendingBlockBody = null;
             } else {
-                // 通常のタブ切り替え時：編集中テキストを維持
                 if (preservedTitle !== null) titleEl.value = preservedTitle;
                 if (preservedBody !== null) bodyEl.value = preservedBody;
             }
@@ -2237,11 +2230,15 @@
     // 名称入力欄の左のアイコン表示を更新
     function updateInputIconPreview() {
         if (!inputIconPreview) return;
-        const coord = pendingIconCoord || (editingIdValue ? (state.items.find(x => x.id === editingIdValue)?.iconCoord) : null);
+        let coord = pendingIconCoord;
+        if (!coord && editingIdValue) {
+            const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
+            if (item && item.iconCoord) coord = item.iconCoord;
+        }
         if (coord && state.iconAtlas && state.iconAtlas.spriteUrl) {
             inputIconPreview.style.display = "block";
-            inputIconPreview.style.width = coord.w + "px";
-            inputIconPreview.style.height = coord.h + "px";
+            inputIconPreview.style.width = (coord.w || 20) + "px";
+            inputIconPreview.style.height = (coord.h || 20) + "px";
             inputIconPreview.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
             inputIconPreview.style.backgroundPosition = `-${coord.x}px -${coord.y}px`;
             inputIconPreview.style.backgroundRepeat = "no-repeat";
@@ -2450,16 +2447,39 @@
     }
 
     function editItem(item) {
+        if (!item) return;
+
         editingIdValue = item.id;
-        lastEditingId = null; // ★ リセットして必ずアイテムのデータを読み込ませる
-        state.filterParent = item.parent;
-        state.filterChild[item.parent] = item.child;
-        state.currentColor = item.color || 0;
+        lastEditingId = null;
+        interactionMode = "normal";
+
+        const p = Number(item.parent) || 0;
+        const c = Number(item.child) || 0;
+        state.filterParent = p;
+        if (!Array.isArray(state.filterChild)) state.filterChild = Array(8).fill(0);
+        state.filterChild[p] = c;
+        state.currentColor = (item.color !== undefined) ? Number(item.color) : 0;
+
+        // ★ 入力欄を確実に開く
         inputHidden = false;
+
         renderPanel();
-        if (titleEl) titleEl.focus();
+
+        // ★ 描画直後にテキストと色を確実にセット
+        if (titleEl) {
+            titleEl.value = item.title || "";
+            titleEl.style.borderLeft = "6px solid " + (state.palette[state.currentColor] || "#fff");
+            titleEl.style.paddingLeft = "6px";
+            titleEl.focus();
+        }
+        if (bodyEl) {
+            bodyEl.value = item.body || "";
+        }
+
+        // アイコンプレビューも即時更新
+        updateInputIconPreview();
     }
-    
+
     function cancelEdit() {
         editingIdValue = null;
         lastEditingId = null;
