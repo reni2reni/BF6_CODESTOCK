@@ -1834,10 +1834,14 @@
 
     function cancelEdit() {
         editingIdValue = null;
+        lastEditingId = null;
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
 
-        // ブロックから直接登録をキャンセルした場合
+        // ★ 入力欄を閉じた状態（≡ NEW ENTRY ≡）にする
+        inputHidden = true;
+
+        // ブロックから直接登録（新規入力モード）をキャンセルした場合
         if (interactionMode === "blockEntry") {
             interactionMode = "normal";
             pendingBlockData = null;
@@ -1850,14 +1854,12 @@
                 return;
             }
 
-            // 🔓️（アンロック）なら閉じる、🔒️（ロック）なら閉じずに開いたまま維持
+            // 🔓️（アンロック）ならパネルごと閉じる、🔒️（ロック）ならパネルは開いたまま入力欄だけ閉じる
             if (!isPinned) {
                 closePanel();
                 return;
             }
 
-            // 🔒️ の場合は入力欄を閉じてリスト一覧を表示
-            inputHidden = true;
             renderPanel();
             return;
         }
