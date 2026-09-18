@@ -1157,13 +1157,33 @@
 
         const titleWrap = document.createElement("div");
         titleWrap.className = "jcs-input-wrapper";
+        titleWrap.style.display = "flex";
+        titleWrap.style.alignItems = "center";
+        titleWrap.style.position = "relative";
+
+        // ★ 名称入力欄の左に表示するアイコンプレビュー枠
+        inputIconPreview = document.createElement("div");
+        inputIconPreview.className = "jcs-input-icon-preview";
+        inputIconPreview.style.width = "20px";
+        inputIconPreview.style.height = "20px";
+        inputIconPreview.style.flexShrink = "0";
+        inputIconPreview.style.marginRight = "6px";
+        inputIconPreview.style.borderRadius = "2px";
+        inputIconPreview.style.display = "none";
+        titleWrap.appendChild(inputIconPreview);
+
         titleEl = document.createElement("input");
         titleEl.placeholder = "🏷️Code name";
+        titleEl.style.flex = "1";
         const clearTitle = makeButton("✕", () => {
             titleEl.value = "";
             titleEl.focus();
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
+
+        // （※この後、updateInputIconPreview() を呼んでアイコン表示を更新します）
+        updateInputIconPreview();
+
 
         const bodyWrap = document.createElement("div");
         bodyWrap.className = "jcs-input-wrapper";
@@ -2230,6 +2250,52 @@
             interactionMode = "blockEntry";
             editingIdValue = null;
             lastEditingId = null;
+            inputHidden = false; // 入力パネルを開く
+
+            pendingBlockTitle = blockTypeName(data);
+            pendingBlockBody = JSON.stringify(data, null, 2);
+
+            if (isCollapsed) {
+                isTempExpanded = true;
+                isCollapsed = false;
+            }
+
+            openPanel();
+            setStatus("Block copied — ADD to save, CANCEL to close");
+
+            // ★ アイコンをバックグラウンド取得し、完了したら即座に入力欄左にプレビュー表示
+            pendingIconCoord = null;
+            try {
+                const iconSrc = extractBlockIcon(block);
+                if (iconSrc) {
+                    getOrAddIconToAtlas(iconSrc).then(coord => {
+                        pendingIconCoord = coord;
+                        updateInputIconPreview(); // ★ プレビューを表示！
+                    }).catch(() => { });
+                } else {
+                    updateInputIconPreview();
+                }
+            } catch (_) { }
+
+            setTimeout(() => titleEl && titleEl.focus(), 0);
+        } catch (e) {
+            console.error("[JS Code Stock] block entry error:", e);
+            BF2042Portal.Shared.logError("JS Code Stock block entry", String(e));
+        }
+    }
+
+
+    function openBlockEntryMode(block) {
+        try {
+            const data = extractBlockForClipboard(block);
+            if (!data) throw new Error("Unable to serialize block");
+
+            pendingBlockData = data;
+            copyText(JSON.stringify(data, null, 2)).catch(() => { });
+
+            interactionMode = "blockEntry";
+            editingIdValue = null;
+            lastEditingId = null;
             inputHidden = false;
 
             // ★ 1. コードと名称を最優先でセット（絶対に失敗しない同期処理）
@@ -2286,37 +2352,38 @@
                 child: state.filterChild[state.filterParent],
                 order: nextOrder(),
                 color: state.currentColor,
-                iconCoord: pendingIconCoord || null // ★ スプライト座標を保存
+                iconCoord: pendingIconCoord || null
             });
             scrollToBottomOnRender = true;
         }
 
+        // ★ 1. 状態の完全初期化
         pendingIconCoord = null;
         editingIdValue = null;
         lastEditingId = null;
+        interactionMode = "normal";
+        pendingBlockData = null;
         saveState();
 
+        // ★ 2. 入力欄を完全にクリア
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
+        if (inputIconPreview) inputIconPreview.style.display = "none";
+
+        // ★ 3. 入力欄を確実に閉じる
         inputHidden = true;
 
-        if (interactionMode === "blockEntry") {
-            interactionMode = "normal";
-            pendingBlockData = null;
-
-            if (isTempExpanded) {
-                isTempExpanded = false;
-                isCollapsed = true;
-                renderPanel();
-                return;
-            }
-
-            if (!isPinned) {
-                closePanel();
-                return;
-            }
-
+        // 最小化から一時展開されていた場合
+        if (isTempExpanded) {
+            isTempExpanded = false;
+            isCollapsed = true;
             renderPanel();
+            return;
+        }
+
+        // アンロック（🔓️）状態ならパネルごと閉じる
+        if (!isPinned) {
+            closePanel();
             return;
         }
 
