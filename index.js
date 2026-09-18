@@ -2278,8 +2278,8 @@
         interactionMode = "workspacePaste";
         editingIdValue = null;
         inputHidden = true;
-        state.filterParent = 0;
-        state.filterChild = Array(8).fill(0);
+
+        // ★ 勝手な親0・子0へのリセット処理を完全撤廃（直前のタブを維持）
 
         if (isCollapsed) {
             isTempExpanded = true;
@@ -2655,13 +2655,23 @@
     }
 
     function closePanel() {
+        // ★ 閉じる直前に、現在のタブのスクロール位置を確実に記憶
+        if (listEl) {
+            const currentTabKey = `${state.filterParent}_${state.filterChild[state.filterParent]}`;
+            listScrollPositions.set(currentTabKey, listEl.scrollTop);
+        }
+
         if (isTempExpanded) {
             isTempExpanded = false;
             isCollapsed = true;
         }
+
         if (panel) panel.style.display = "none";
         interactionMode = "normal";
         pendingBlockData = null;
+
+        // 現在のタブ選択状態をディスク（IndexedDB）へ確実に保存
+        saveState();
     }
 
     let menusRegistered = false;
