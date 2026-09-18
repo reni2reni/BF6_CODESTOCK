@@ -1382,7 +1382,6 @@
                 row.style.border = "1px dashed #888";
             }
 
-            // 1. 左側ドラッグボタン（≡）
             const drag = document.createElement("button");
             drag.className = "jcs-drag" + (selectedIds.has(id) ? " active" : "");
             drag.textContent = "≡";
@@ -1474,7 +1473,6 @@
                 renderList();
             };
 
-            // 2. 中央：コード名要素 ＋ ★スプライトアイコン★
             const name = document.createElement("div");
             name.className = "jcs-name";
             name.style.borderLeftColor = state.palette[item.color || 0];
@@ -1526,7 +1524,6 @@
             listEl.appendChild(row);
         });
 
-        // 4. 最下部ドロップ領域
         let endDrop = document.createElement("div");
         endDrop.style.height = "16px";
         endDrop.style.marginTop = "2px";
@@ -1561,17 +1558,6 @@
         };
         listEl.appendChild(endDrop);
 
-        // 5. 新規追加直後の末尾スクロール
-        if (scrollToBottomOnRender && listEl) {
-            scrollToBottomOnRender = false;
-            requestAnimationFrame(() => {
-                if (listEl) {
-                    listEl.scrollTop = listEl.scrollHeight;
-                }
-            });
-        }
-
-        // 6. 空の場合の表示
         if (!filtered.length) {
             const empty = document.createElement("div");
             empty.style.padding = "20px";
