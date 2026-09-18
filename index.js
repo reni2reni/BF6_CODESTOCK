@@ -983,11 +983,14 @@
     function renderPanel() {
         if (!panel) return;
 
-        // ★ 1. 描画前に必ずデータの整合性を保証（クラッシュ完全防止）
         ensureStateIntegrity();
 
         const preservedTitle = titleEl ? titleEl.value : null;
         const preservedBody = bodyEl ? bodyEl.value : null;
+
+        // ★ 再描画前の左ツリーのスクロール位置を一時記憶
+        const prevTreeNav = panel.querySelector(".jcs-tree-nav");
+        const savedTreeScrollTop = prevTreeNav ? prevTreeNav.scrollTop : 0;
 
         panel.innerHTML = "";
 
@@ -1204,12 +1207,13 @@
             const treeNav = document.createElement("div");
             treeNav.className = "jcs-tree-nav";
 
-            for (let p = 0; p < state.parentCount; p++) {
-                const pName = state.parents[p] || ("P" + p);
+            if (showTreeNav) {
+                const treeNav = document.createElement("div");
+                treeNav.className = "jcs-tree-nav";
 
-                // ★ 親の名称が "-" の場合、親も配下の子も左ツリーでは丸ごと非表示
-                if (String(pName).trim() === "-") {
-                    continue;
+                for (let p = 0; p < state.parentCount; p++) {
+                    const pName = state.parents[p] || ("P" + p);
+                    if (String(pName).trim() === "-") continue;
                 }
 
                 // 親項目 [ 親A ]
@@ -1230,11 +1234,8 @@
                 const cList = state.children[p] || [];
                 for (let c = 0; c < state.childCount; c++) {
                     const cName = cList[c] || (state.parents[p] + "-" + (c + 1));
-
-                    // ★ 子の名称が "-" の場合、その子項目のみ左ツリーで非表示
-                    if (String(cName).trim() === "-") {
-                        continue;
-                    }
+                    if (String(cName).trim() === "-") continue;
+                    
 
                     const cEl = document.createElement("div");
                     const isActive = (state.filterParent === p && state.filterChild[p] === c);
@@ -1253,6 +1254,12 @@
                 }
             }
             mainPane.appendChild(treeNav);
+
+            // ★ 記憶していたスクロール位置を瞬時に復元して固定
+            treeNav.scrollTop = savedTreeScrollTop;
+            requestAnimationFrame(() => {
+                if (treeNav) treeNav.scrollTop = savedTreeScrollTop;
+            });
         }
 
         // 右側コードリスト
