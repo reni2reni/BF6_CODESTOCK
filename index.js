@@ -58,6 +58,7 @@
     let isTempExpanded = false;
     let savedPanelHeight = "600px";
     let showTreeNav = true;
+    let lastTreeNavScrollTop = 0; // ★ 左ツリーのスクロール位置を常に永続記憶する変数
 
     let panel = null;
     let listEl = null;
@@ -1089,8 +1090,11 @@
         const preservedTitle = titleEl ? titleEl.value : null;
         const preservedBody = bodyEl ? bodyEl.value : null;
 
+        // ★ 画面上にツリーがあれば最新のスクロール位置を確実に退避
         const prevTreeNav = panel.querySelector(".jcs-tree-nav");
-        const savedTreeScrollTop = prevTreeNav ? prevTreeNav.scrollTop : 0;
+        if (prevTreeNav && prevTreeNav.scrollTop > 0) {
+            lastTreeNavScrollTop = prevTreeNav.scrollTop;
+        }
 
         panel.innerHTML = "";
 
@@ -1447,9 +1451,15 @@
 
             mainPane.appendChild(treeNav);
 
-            treeNav.scrollTop = savedTreeScrollTop;
+            // ★ ユーザーがスクロールした位置をリアルタイムに記録
+            treeNav.addEventListener("scroll", () => {
+                lastTreeNavScrollTop = treeNav.scrollTop;
+            }, { passive: true });
+
+            // ★ 記憶していたスクロール位置を瞬時に復元して固定！
+            treeNav.scrollTop = lastTreeNavScrollTop;
             requestAnimationFrame(() => {
-                if (treeNav) treeNav.scrollTop = savedTreeScrollTop;
+                if (treeNav) treeNav.scrollTop = lastTreeNavScrollTop;
             });
         }
 
@@ -2741,10 +2751,14 @@
                 titleEl.style.cursor = "grab";
 
                 if (hasMoved) {
-                    // ★ ドラッグ移動した場合：新しい位置を保存
                     saveWindowBounds();
                 } else {
-                    // ★ 移動せずクリックした場合：タイトル以外を消去（最小化）/ 展開をトグル！
+                    // ★ 最小化する直前のツリースクロール位置を保護
+                    const currentTree = panel.querySelector(".jcs-tree-nav");
+                    if (currentTree && currentTree.scrollTop > 0) {
+                        lastTreeNavScrollTop = currentTree.scrollTop;
+                    }
+
                     isCollapsed = !isCollapsed;
                     if (isCollapsed && panel.style.height && panel.style.height !== "auto") {
                         savedPanelHeight = panel.style.height;
@@ -2779,10 +2793,17 @@
     }
 
     function closePanel() {
-        // ★ 閉じる直前に、現在のタブのスクロール位置を確実に記憶
         if (listEl) {
             const currentTabKey = `${state.filterParent}_${state.filterChild[state.filterParent]}`;
             listScrollPositions.set(currentTabKey, listEl.scrollTop);
+        }
+
+        // ★ パネルを閉じる直前に左ツリーのスクロール位置も確実に記憶
+        if (panel) {
+            const currentTree = panel.querySelector(".jcs-tree-nav");
+            if (currentTree && currentTree.scrollTop > 0) {
+                lastTreeNavScrollTop = currentTree.scrollTop;
+            }
         }
 
         if (isTempExpanded) {
@@ -2794,7 +2815,6 @@
         interactionMode = "normal";
         pendingBlockData = null;
 
-        // 現在のタブ選択状態をディスク（IndexedDB）へ確実に保存
         saveState();
     }
 
