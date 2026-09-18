@@ -1205,10 +1205,17 @@
             treeNav.className = "jcs-tree-nav";
 
             for (let p = 0; p < state.parentCount; p++) {
-                // 親項目
+                const pName = state.parents[p] || ("P" + p);
+
+                // ★ 親の名称が "-" の場合、親も配下の子も左ツリーでは丸ごと非表示
+                if (String(pName).trim() === "-") {
+                    continue;
+                }
+
+                // 親項目 [ 親A ]
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent" + (state.filterParent === p ? " active" : "");
-                pEl.textContent = state.parents[p] || ("P" + p);
+                pEl.textContent = pName;
                 pEl.onclick = () => {
                     state.filterParent = p;
                     renderPanel();
@@ -1219,13 +1226,20 @@
                 };
                 treeNav.appendChild(pEl);
 
-                // 子項目
+                // 子項目 [ 子A-1 ] 〜 [ 子A-8 ]
                 const cList = state.children[p] || [];
                 for (let c = 0; c < state.childCount; c++) {
+                    const cName = cList[c] || (state.parents[p] + "-" + (c + 1));
+
+                    // ★ 子の名称が "-" の場合、その子項目のみ左ツリーで非表示
+                    if (String(cName).trim() === "-") {
+                        continue;
+                    }
+
                     const cEl = document.createElement("div");
                     const isActive = (state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
-                    cEl.textContent = cList[c] || (state.parents[p] + "-" + (c + 1));
+                    cEl.textContent = cName;
                     cEl.onclick = () => {
                         state.filterParent = p;
                         state.filterChild[p] = c;
