@@ -961,14 +961,13 @@
             }
         }
     }
-
+    
     function renderPanel() {
         if (!panel) return;
 
-        // 1. データの整合性を保証（配列の未定義エラーやクラッシュを完全防止）
+        // ★ 1. 描画前に必ずデータの整合性を保証（クラッシュ完全防止）
         ensureStateIntegrity();
 
-        // 2. 再描画前に入力中だった内容を一時退避
         const preservedTitle = titleEl ? titleEl.value : null;
         const preservedBody = bodyEl ? bodyEl.value : null;
 
@@ -977,13 +976,13 @@
         const container = document.createElement("div");
         container.className = "jcs-container";
 
-        // ヘッダー部（タイトル ＆ 右上ボタン群）
         const head = document.createElement("div");
         head.className = "jcs-head";
         const ttl = document.createElement("div");
         ttl.className = "jcs-title";
+        // 折りたたみ時はタイトルの横にマークを表示して分かりやすく
         ttl.textContent = isCollapsed ? "🐛JS Stock ▶" : "🐛JS Stock ▼";
-        ttl.title = "Click to collapse/expand (Drag to move)";
+        ttl.title = "Click to minimize/expand (drag to move)";
 
         const tools = document.createElement("div");
         tools.className = "jcs-tools";
@@ -993,19 +992,20 @@
             e.stopPropagation();
             showSettingsMenu(gearBtn);
         }, "jcs-gear");
-        gearBtn.title = "Settings (EXPORT / IMPORT / Tab Count)";
+        gearBtn.title = "Settings (EXPORT / IMPORT / Change Number of Tabs)";
 
-        // 🔒️ / 🔓️ ピン留め（ロック）ボタン
+        // 🔒️ / 🔓️ ピン留めボタン
         const pinBtn = makeButton(isPinned ? "🔒️" : "🔓️", () => {
             isPinned = !isPinned;
             renderPanel();
         }, "jcs-pin" + (isPinned ? "" : " unlocked"));
-        pinBtn.title = isPinned ? "Locked (Keep open)" : "Unlocked (Auto close)";
+        pinBtn.title = isPinned ? "Locked(does not close after use)" : "Unlocked(closes automatically after use)";
 
         // ✕ 閉じるボタン
         const close = makeButton("✕", closePanel, "jcs-close");
         close.title = "Close";
 
+        // ★ 並び順：⚙️ 🔒️ ✕ （⬒ボタンは撤廃）
         tools.append(gearBtn, pinBtn, close);
         head.append(ttl, tools);
 
@@ -1018,13 +1018,15 @@
         }
 
         panel.classList.remove("collapsed");
+
+        // ★ 修正：600pxで上書きせず、記憶された高さ（または変更後の高さ）を適用
         if (state.windowBounds && state.windowBounds.height) {
             panel.style.height = state.windowBounds.height + "px";
         } else if (savedPanelHeight) {
             panel.style.height = savedPanelHeight;
         }
 
-        // --- 親タブ生成 ---
+        // 親タブ
         const parentTabs = document.createElement("div");
         parentTabs.className = "jcs-tabs";
         state.parents.slice(0, state.parentCount).forEach((name, i) => {
@@ -1039,7 +1041,7 @@
             parentTabs.appendChild(b);
         });
 
-        // --- 子タブ生成 ---
+        // --- 子タブ生成（安全スライス） ---
         const childTabs = document.createElement("div");
         childTabs.className = "jcs-tabs jcs-child";
         (state.children[state.filterParent] || []).slice(0, state.childCount).forEach((name, i) => {
@@ -1054,32 +1056,22 @@
             childTabs.appendChild(b);
         });
 
-        // --- カラーパレットタブ（8色） ---
         const colorTabs = document.createElement("div");
         colorTabs.className = "jcs-tabs jcs-colors";
         state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
-            const b = makeButton("", () => {
-                state.currentColor = i;
-                renderPanel();
-            }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
+            const b = makeButton("", () => { state.currentColor = i; renderPanel(); }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
             b.style.background = c;
             b.title = "Color " + (i + 1) + " — right click to change";
             b.oncontextmenu = e => {
                 e.preventDefault();
                 const picker = document.createElement("input");
-                picker.type = "color";
-                picker.value = state.palette[i];
-                picker.onchange = () => {
-                    state.palette[i] = picker.value;
-                    saveState();
-                    renderPanel();
-                };
+                picker.type = "color"; picker.value = state.palette[i];
+                picker.onchange = () => { state.palette[i] = picker.value; saveState(); renderPanel(); };
                 picker.click();
             };
             colorTabs.appendChild(b);
         });
 
-        // --- 入力セクション（コード名 / 本文 / ADD / CANCEL） ---
         const inputSection = document.createElement("div");
         inputSection.className = "jcs-input-section";
         const inputRow = document.createElement("div");
@@ -1091,10 +1083,7 @@
         titleWrap.className = "jcs-input-wrapper";
         titleEl = document.createElement("input");
         titleEl.placeholder = "🏷️Code name";
-        const clearTitle = makeButton("✕", () => {
-            titleEl.value = "";
-            titleEl.focus();
-        }, "jcs-clear");
+        const clearTitle = makeButton("✕", () => { titleEl.value = ""; titleEl.focus(); }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
 
         const bodyWrap = document.createElement("div");
@@ -1109,10 +1098,7 @@
                 if (data.type) titleEl.value = data.type;
             } catch (_) { }
         });
-        const clearBody = makeButton("✕", () => {
-            bodyEl.value = "";
-            bodyEl.focus();
-        }, "jcs-clear");
+        const clearBody = makeButton("✕", () => { bodyEl.value = ""; bodyEl.focus(); }, "jcs-clear");
         bodyWrap.append(bodyEl, clearBody);
 
         const inputRight = document.createElement("div");
@@ -1127,28 +1113,26 @@
 
         const toggle = makeButton(inputHidden ? "≡ NEW ENTRY ≡" : "≡ CLOSE ≡", () => {
             inputHidden = !inputHidden;
-            if (inputHidden) {
-                editingIdValue = null;
-                lastEditingId = null;
-            }
+            if (inputHidden) editingIdValue = null;
             renderPanel();
             if (!inputHidden && titleEl) titleEl.focus();
         });
         toggle.id = "jcs-toggle-input";
         inputSection.appendChild(toggle);
 
-        // 入力欄の開閉および内容復元
         if (inputHidden) {
             inputRow.classList.add("jcs-hidden");
             colorTabs.classList.add("jcs-hidden");
         } else if (hasEditingId()) {
             const item = state.items.find(x => x.id === editingIdValue);
             if (item) {
+                // ★ 新しくEDITを押した時はアイテムのコードと名称を確実にセット
                 if (lastEditingId !== editingIdValue) {
                     titleEl.value = item.title;
                     bodyEl.value = item.body;
                     lastEditingId = editingIdValue;
                 } else {
+                    // 同じアイテムの編集中にタブや色を変えた時は編集中の文字を維持
                     titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
                     bodyEl.value = preservedBody !== null ? preservedBody : item.body;
                 }
@@ -1163,58 +1147,47 @@
             titleEl.style.paddingLeft = "6px";
         }
 
-        // --- フィルターセクション（ALL ＋ カラーフィルター ＋ 検索窓） ---
         const filter = document.createElement("div");
         filter.className = "jcs-filter";
         const fc = document.createElement("div");
         fc.className = "jcs-tabs jcs-filter-colors";
 
-        const all = makeButton("ALL", () => {
-            state.filterColor = null;
-            renderPanel();
-        }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
+        const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
         fc.appendChild(all);
-
         state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
-            const b = makeButton("", () => {
-                state.filterColor = state.filterColor === i ? null : i;
-                renderPanel();
-            }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
+            const b = makeButton("", () => { state.filterColor = state.filterColor === i ? null : i; renderPanel(); }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
             b.style.background = c;
             fc.appendChild(b);
         });
-
         searchEl = document.createElement("input");
         searchEl.className = "jcs-search";
         searchEl.placeholder = "🔎search";
         searchEl.oninput = renderList;
         filter.append(fc, searchEl);
 
-        // --- 見出しバー（TAB ▶/▼ 切り替え ＆ CodeLists 表題） ---
+        // ★ 見出しバー（TAB ▶/▼ 切り替えボタン ＆ CodeLists タイトル）
         const bodyHead = document.createElement("div");
         bodyHead.className = "jcs-body-head";
         const treeToggleBtn = makeButton(showTreeNav ? "TAB ▼" : "TAB ▶", () => {
             showTreeNav = !showTreeNav;
             renderPanel();
         }, "jcs-tree-toggle");
-        treeToggleBtn.title = "Toggle left tree sidebar";
-
+        treeToggleBtn.title = "左タブツリーの表示/非表示を切り替え";
         const bodyTitle = document.createElement("span");
         bodyTitle.className = "jcs-body-title";
         bodyTitle.textContent = "CodeLists";
         bodyHead.append(treeToggleBtn, bodyTitle);
 
-        // --- メインペイン（左ツリー ＋ 右コードリスト） ---
+        // ★ メインペイン（左ツリー ＋ 右コードリスト）
         const mainPane = document.createElement("div");
         mainPane.className = "jcs-main-pane";
 
-        // 左側ツリーナビゲーション（showTreeNav が true の時のみ表示）
         if (showTreeNav) {
             const treeNav = document.createElement("div");
             treeNav.className = "jcs-tree-nav";
 
             for (let p = 0; p < state.parentCount; p++) {
-                // 親項目 [ 親A ]
+                // 親項目
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent" + (state.filterParent === p ? " active" : "");
                 pEl.textContent = state.parents[p] || ("P" + p);
@@ -1228,7 +1201,7 @@
                 };
                 treeNav.appendChild(pEl);
 
-                // 子項目 [ 子A-1 ] 〜 [ 子A-8 ]
+                // 子項目
                 const cList = state.children[p] || [];
                 for (let c = 0; c < state.childCount; c++) {
                     const cEl = document.createElement("div");
@@ -1255,7 +1228,6 @@
         listEl.className = "jcs-list";
         mainPane.appendChild(listEl);
 
-        // フッター部
         const foot = document.createElement("div");
         foot.className = "jcs-foot";
         statusEl = document.createElement("span");
@@ -1265,7 +1237,6 @@
 
         container.append(head, parentTabs, childTabs, colorTabs, inputSection, filter, bodyHead, mainPane, foot);
         panel.appendChild(container);
-
         renderList();
     }
 
