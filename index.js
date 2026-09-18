@@ -632,15 +632,16 @@
         const atlas = state.iconAtlas;
         const existingIdx = atlas.sources.indexOf(iconSrc);
 
-        // すでに登録済みのアイコンなら、その座標を返して終了（容量消費ゼロ！）
         if (existingIdx !== -1) {
             return Promise.resolve({ x: existingIdx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
         }
 
-        // 新規アイコンの場合、スプライト画像にタイリング追加
         return new Promise(resolve => {
             const img = new Image();
-            img.crossOrigin = "anonymous";
+            // data: URI 以外の場合のみ crossOrigin を設定
+            if (!iconSrc.startsWith("data:")) {
+                img.crossOrigin = "anonymous";
+            }
             img.onload = () => {
                 const idx = atlas.sources.length;
                 atlas.sources.push(iconSrc);
@@ -1056,7 +1057,9 @@
         const ttl = document.createElement("div");
         ttl.className = "jcs-title";
         ttl.textContent = isCollapsed ? "🐛JS Stock ▶" : "🐛JS Stock ▼";
-        ttl.title = "Click to collapse/expand (Drag to move)";
+
+        // ★ タイトルに直接ドラッグ＆最小化トグルをバインド！
+        attachTitleDragAndToggle(ttl);
 
         const tools = document.createElement("div");
         tools.className = "jcs-tools";
@@ -1216,11 +1219,28 @@
                     titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
                     bodyEl.value = preservedBody !== null ? preservedBody : item.body;
                 }
-
-                // ★ 修正：カラータグをクリックした時、選んだ色（state.currentColor）が名称左のラインに即時反映
                 titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
                 titleEl.style.paddingLeft = "6px";
             }
+        } else {
+            lastEditingId = null;
+
+            // ★ ブロックから登録で開いた時：準備されたコードと名称を確実にセット！
+            if (interactionMode === "blockEntry" && pendingBlockTitle !== null) {
+                titleEl.value = pendingBlockTitle;
+                bodyEl.value = pendingBlockBody;
+                pendingBlockTitle = null; // 初回代入後にクリア
+                pendingBlockBody = null;
+            } else {
+                // 通常のタブ切り替え時：編集中テキストを維持
+                if (preservedTitle !== null) titleEl.value = preservedTitle;
+                if (preservedBody !== null) bodyEl.value = preservedBody;
+            }
+
+            titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
+            titleEl.style.paddingLeft = "6px";
+        }
+
         } else {
             lastEditingId = null;
             if (preservedTitle !== null) titleEl.value = preservedTitle;
@@ -2205,32 +2225,49 @@
         setStatus("Select or drag a code entry into workspace");
     }
 
-    async function openBlockEntryMode(block) {
+    let pendingBlockTitle = null;
+    let pendingBlockBody = null;
+
+    function openBlockEntryMode(block) {
         try {
             const data = extractBlockForClipboard(block);
             if (!data) throw new Error("Unable to serialize block");
+
             pendingBlockData = data;
             copyText(JSON.stringify(data, null, 2)).catch(() => { });
+
             interactionMode = "blockEntry";
             editingIdValue = null;
+            lastEditingId = null;
             inputHidden = false;
 
-            // ★ ブロック先頭のアイコンを自動取得しスプライト座標を取得
-            const iconSrc = extractBlockIcon(block);
-            pendingIconCoord = await getOrAddIconToAtlas(iconSrc);
+            // ★ 1. コードと名称を最優先でセット（絶対に失敗しない同期処理）
+            pendingBlockTitle = blockTypeName(data);
+            pendingBlockBody = JSON.stringify(data, null, 2);
 
             if (isCollapsed) {
                 isTempExpanded = true;
                 isCollapsed = false;
             }
 
+            // ★ 2. 即座にパネルを開いてテキスト欄に反映
             openPanel();
-            renderPanel();
-            titleEl.value = blockTypeName(data);
-            bodyEl.value = JSON.stringify(data, null, 2);
             setStatus("Block copied — ADD to save, CANCEL to close");
+
+            // ★ 3. アイコンはバックグラウンドで安全に取得（全体の処理を絶対に邪魔しない）
+            pendingIconCoord = null;
+            try {
+                const iconSrc = extractBlockIcon(block);
+                if (iconSrc) {
+                    getOrAddIconToAtlas(iconSrc).then(coord => {
+                        pendingIconCoord = coord;
+                    }).catch(() => { });
+                }
+            } catch (_) { }
+
             setTimeout(() => titleEl && titleEl.focus(), 0);
         } catch (e) {
+            console.error("[JS Code Stock] block entry error:", e);
             BF2042Portal.Shared.logError("JS Code Stock block entry", String(e));
         }
     }
@@ -2350,28 +2387,26 @@
             .forEach((x, i) => x.order = i);
     }
 
-    function enablePanelDragging() {
-        if (!panel || panel._dragInitialized) return;
-        panel._dragInitialized = true;
+    // タイトル要素に直接ドラッグ移動＆クリック最小化をバインド（確実に動作する方式）
+    function attachTitleDragAndToggle(titleEl) {
+        titleEl.style.cursor = "grab";
+        titleEl.title = "Click to collapse/expand (Drag to move)";
 
-        panel.addEventListener("mouseup", () => {
-            if (!isCollapsed) saveWindowBounds();
-        });
-
-        panel.addEventListener("mousedown", e => {
-            if (e.button !== 0) return;
-            const title = e.target.closest(".jcs-title");
-            if (!title) return;
+        titleEl.addEventListener("mousedown", (e) => {
+            if (e.button !== 0) return; // 左クリックのみ
 
             e.preventDefault();
+            titleEl.style.cursor = "grabbing";
+
             const r = panel.getBoundingClientRect();
             const startX = e.clientX, startY = e.clientY;
             const startLeft = r.left, startTop = r.top;
             let hasMoved = false;
 
-            const move = ev => {
+            const onMove = (ev) => {
                 const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
-                if (dist > 5) {
+                // 4px以上動いたら「ドラッグ移動」と判定
+                if (dist > 4) {
                     hasMoved = true;
                     const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
                     const maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
@@ -2381,13 +2416,16 @@
                 }
             };
 
-            const up = () => {
-                document.removeEventListener("mousemove", move);
-                document.removeEventListener("mouseup", up);
+            const onUp = () => {
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+                titleEl.style.cursor = "grab";
 
                 if (hasMoved) {
+                    // ★ ドラッグ移動した場合：新しい位置を保存
                     saveWindowBounds();
                 } else {
+                    // ★ 移動せずクリックした場合：タイトル以外を消去（最小化）/ 展開をトグル！
                     isCollapsed = !isCollapsed;
                     if (isCollapsed && panel.style.height && panel.style.height !== "auto") {
                         savedPanelHeight = panel.style.height;
@@ -2396,30 +2434,24 @@
                 }
             };
 
-            document.addEventListener("mousemove", move);
-            document.addEventListener("mouseup", up);
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
         });
     }
 
     function openPanel() {
-        if (panel) {
-            panel.style.display = "flex";
-            renderPanel();
-            enablePanelDragging();
-
-            const isPositionFixed = applySavedWindowBounds();
-            if (!isPositionFixed) {
-                requestAnimationFrame(positionPanelAtContext);
-            }
-            return;
+        if (!panel) {
+            panel = document.getElementById("js-code-stock-panel");
+        }
+        if (!panel) {
+            injectStyle();
+            panel = document.createElement("div");
+            panel.id = "js-code-stock-panel";
+            document.body.appendChild(panel);
         }
 
-        injectStyle();
-        panel = document.createElement("div");
-        panel.id = "js-code-stock-panel";
-        document.body.appendChild(panel);
+        panel.style.display = "flex";
         renderPanel();
-        enablePanelDragging();
 
         const isPositionFixed = applySavedWindowBounds();
         if (!isPositionFixed) {
