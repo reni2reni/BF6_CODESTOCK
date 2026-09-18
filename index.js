@@ -71,6 +71,9 @@
     let lastMouseEvent = null;
     let lastContextMenuEvent = null;
 
+    let scrollToBottomOnRender = false;
+    const listScrollPositions = new Map(); // ★ タブごとのスクロール位置を記録（キー: "親_子"）
+
     function cloneDefault() {
         return {
             items: [],
@@ -1419,6 +1422,14 @@
     function renderList() {
         if (!listEl) return;
         listEl.innerHTML = "";
+
+        const currentTabKey = `${state.filterParent}_${state.filterChild[state.filterParent]}`;
+
+        // ★ ユーザーがスクロールした位置をリアルタイムにタブごとに記憶
+        listEl.addEventListener("scroll", () => {
+            listScrollPositions.set(currentTabKey, listEl.scrollTop);
+        }, { passive: true });
+
         const q = searchEl ? searchEl.value.toLowerCase() : "";
         let filtered = state.items.filter(item =>
             item.parent === state.filterParent &&
@@ -1535,7 +1546,6 @@
             name.style.borderLeftColor = state.palette[item.color || 0];
             name.title = "Drag to place in workspace / Click to copy";
 
-            // ★ アイコン座標が存在すれば、スプライトシートから切り抜き表示
             if (item.iconCoord && state.iconAtlas && state.iconAtlas.spriteUrl) {
                 const iconEl = document.createElement("div");
                 iconEl.style.width = item.iconCoord.w + "px";
@@ -1555,7 +1565,6 @@
 
             attachDragOutListener(item, name);
 
-            // 3. 右側アクションボタン（EDIT / ✕）
             const actions = document.createElement("div");
             actions.className = "jcs-actions";
             actions.append(
@@ -1614,6 +1623,25 @@
             renderList();
         };
         listEl.appendChild(endDrop);
+
+        // ★ スクロール位置の制御
+        if (scrollToBottomOnRender && listEl) {
+            // 新規ADD直後は一番下（末尾）へスクロール
+            scrollToBottomOnRender = false;
+            requestAnimationFrame(() => {
+                if (listEl) {
+                    listEl.scrollTop = listEl.scrollHeight;
+                    listScrollPositions.set(currentTabKey, listEl.scrollTop);
+                }
+            });
+        } else if (listEl) {
+            // ★ 入力欄オープン時やタブ切り替え時：記憶されたそのタブの位置を復元！
+            const targetScrollTop = listScrollPositions.get(currentTabKey) || 0;
+            listEl.scrollTop = targetScrollTop;
+            requestAnimationFrame(() => {
+                if (listEl) listEl.scrollTop = targetScrollTop;
+            });
+        }
 
         if (!filtered.length) {
             const empty = document.createElement("div");
