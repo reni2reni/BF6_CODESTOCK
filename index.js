@@ -2441,6 +2441,25 @@
         renderPanel();
     }
 
+    function nextOrder() {
+        const group = state.items.filter(x =>
+            x.parent === state.filterParent &&
+            x.child === state.filterChild[state.filterParent]
+        );
+        return group.length;
+    }
+
+    function editItem(item) {
+        editingIdValue = item.id;
+        lastEditingId = null; // ★ リセットして必ずアイテムのデータを読み込ませる
+        state.filterParent = item.parent;
+        state.filterChild[item.parent] = item.child;
+        state.currentColor = item.color || 0;
+        inputHidden = false;
+        renderPanel();
+        if (titleEl) titleEl.focus();
+    }
+    
     function cancelEdit() {
         editingIdValue = null;
         lastEditingId = null;
