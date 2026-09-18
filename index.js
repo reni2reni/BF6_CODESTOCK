@@ -432,11 +432,15 @@
     function exportData() {
         const data = {
             items: state.items,
+            // ★ アイコン画像の実体データ（スプライトPNGのBase64 ＆ 全元ソース配列）を完全に同梱
+            iconAtlas: state.iconAtlas || null,
             config: {
                 parentCount: state.parentCount || 4,
                 childCount: state.childCount || 6,
                 parents: state.parents,
                 children: state.children,
+                parentColors: state.parentColors || null,
+                childColors: state.childColors || null,
                 palette: state.palette
             }
         };
@@ -451,6 +455,7 @@
         URL.revokeObjectURL(url);
     }
 
+    // 全体インポート（アイコン画像データも完全復元）
     function importData() {
         const input = document.createElement("input");
         input.type = "file"; input.accept = ".json,application/json";
@@ -462,14 +467,25 @@
                 try {
                     const data = JSON.parse(reader.result);
                     if (!confirm("Overwrite current JS Code Stock data?")) return;
+
                     if (Array.isArray(data.items)) state.items = data.items;
+
+                    // ★ アイコンスプライト画像データの復元
+                    if (data.iconAtlas && data.iconAtlas.spriteUrl) {
+                        state.iconAtlas = data.iconAtlas;
+                    }
+
                     if (data.config) {
                         if (data.config.parentCount) state.parentCount = Math.max(1, Math.min(8, Number(data.config.parentCount) || 4));
                         if (data.config.childCount) state.childCount = Math.max(1, Math.min(8, Number(data.config.childCount) || 6));
                         if (Array.isArray(data.config.parents)) state.parents = data.config.parents.slice();
                         if (Array.isArray(data.config.children)) state.children = data.config.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
                         if (Array.isArray(data.config.palette) && data.config.palette.length === COLOR_COUNT) state.palette = data.config.palette.slice();
+
+                        if (Array.isArray(data.config.parentColors)) state.parentColors = data.config.parentColors.slice();
+                        if (Array.isArray(data.config.childColors)) state.childColors = data.config.childColors.map(arr => Array.isArray(arr) ? arr.slice() : []);
                     }
+
                     saveState();
                     renderPanel();
                     setStatus("Import complete");
@@ -482,6 +498,7 @@
         };
         input.click();
     }
+
 
     function exportCurrentTagData() {
         const pIdx = state.filterParent;
@@ -502,11 +519,20 @@
             type: "CodeStock_TagExport",
             parentName: pName,
             childName: cName,
-            items: targetItems.map(i => ({
-                title: i.title,
-                body: i.body,
-                color: i.color || 0
-            }))
+            items: targetItems.map(i => {
+                // アイコンの元URL/データを特定して同梱
+                let iconSrc = null;
+                if (i.iconCoord && state.iconAtlas && Array.isArray(state.iconAtlas.sources)) {
+                    const idx = Math.floor(i.iconCoord.x / (i.iconCoord.w || ICON_SIZE));
+                    iconSrc = state.iconAtlas.sources[idx] || null;
+                }
+                return {
+                    title: i.title,
+                    body: i.body,
+                    color: i.color || 0,
+                    iconSrc: iconSrc // ★ アイコン元データ
+                };
+            })
         };
 
         const text = JSON.stringify(data, null, 2);
@@ -520,6 +546,7 @@
         URL.revokeObjectURL(url);
     }
 
+    // タグ専用インポート（アイコン画像もスプライトに自動追加・マージ）
     function importCurrentTagData() {
         const pIdx = state.filterParent;
         const cIdx = state.filterChild[pIdx];
@@ -533,7 +560,7 @@
             const file = input.files && input.files[0];
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = () => {
+            reader.onload = async () => {
                 try {
                     const raw = JSON.parse(reader.result);
                     const importList = Array.isArray(raw) ? raw : (raw.items || []);
@@ -551,8 +578,16 @@
                     let nextOrderNum = currentItems.length;
                     let addedCount = 0;
 
-                    importList.forEach(item => {
+                    for (const item of importList) {
                         if (item && item.title) {
+                            // アイコン元データがあれば、スプライトアトラスへ安全に自動追加して座標取得
+                            let iconCoord = null;
+                            if (item.iconSrc) {
+                                try {
+                                    iconCoord = await getOrAddIconToAtlas(item.iconSrc);
+                                } catch (_) { }
+                            }
+
                             state.items.push({
                                 id: uid(),
                                 title: item.title,
@@ -560,11 +595,12 @@
                                 parent: pIdx,
                                 child: cIdx,
                                 order: nextOrderNum++,
-                                color: (item.color !== undefined) ? item.color : state.currentColor
+                                color: (item.color !== undefined) ? item.color : state.currentColor,
+                                iconCoord: iconCoord
                             });
                             addedCount++;
                         }
-                    });
+                    }
 
                     saveState();
                     renderPanel();
@@ -578,6 +614,7 @@
         };
         input.click();
     }
+
 
     const ICON_SIZE = 20; // アイコンの一辺サイズ(px)
     let pendingIconCoord = null; // 新規登録時に一時保持するアイコン座標
