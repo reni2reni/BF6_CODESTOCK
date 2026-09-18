@@ -4,16 +4,18 @@
 
     const plugin = BF2042Portal.Plugins.getPlugin("jsCodeStock");
     const STORAGE_KEY = "BF2042Portal_JSCodeStock_v1";
-    // Category counts are fixed: 4 parent categories, 6 child categories each.
+    const DB_NAME = "BF2042Portal_JSCodeStock_DB";
+    const DB_STORE = "state_store";
+
     const PARENT_COUNT = 4;
     const CHILD_COUNT = 6;
     const COLOR_COUNT = 8;
     const DEFAULT_PARENTS = ["A", "B", "C", "D"];
     const DEFAULT_CHILDREN = [
-        ["A-0", "A-1", "A-2", "A-3", "A-4", "A-5"],
-        ["B-0", "B-1", "B-2", "B-3", "B-4", "B-5"],
-        ["C-0", "C-1", "C-2", "C-3", "C-4", "C-5"],
-        ["D-0", "D-1", "D-2", "D-3", "D-4", "D-5"]
+        ["A-1", "A-2", "A-3", "A-4", "A-5", "A-6"],
+        ["B-1", "B-2", "B-3", "B-4", "B-5", "B-6"],
+        ["C-1", "C-2", "C-3", "C-4", "C-5", "C-6"],
+        ["D-1", "D-2", "D-3", "D-4", "D-5", "D-6"]
     ];
     const DEFAULT_PALETTE = [
         "#e74c3c", "#f39c12", "#f1c40f", "#2ecc71",
@@ -26,39 +28,59 @@
         children: DEFAULT_CHILDREN.map(x => x.slice()),
         palette: DEFAULT_PALETTE.slice(),
         filterParent: 0,
-        filterChild: [0, 0, 0, 0],
+        filterChild: [0, 0, 0, 0, 0, 0, 0, 0],
         filterColor: null,
-        currentColor: 0
+        currentColor: 0,
+        parentCount: 4,
+        childCount: 6,
+        windowBounds: { left: null, top: null, width: 400, height: 600 }
     };
+
     let editingIdValue = null;
-    let lastEditingId = null; // ★ 編集中のアイテムIDを追跡
-    let inputHidden = false;
-    let showTreeNav = true;
+    let lastEditingId = null;
+    let inputHidden = true;
     let selectedIds = new Set();
     let lastSelected = null;
     let internalClipboard = [];
-    let clipboardMode = null; // "copy" | "cut"
+    let clipboardMode = null;
     let cutIds = new Set();
+    let folderClipboard = null;
 
-    let isPinned = true; // 🔒️ ロック状態（falseだと操作後に自動で閉じる）
-    let isCollapsed = false; // ⬒ 折りたたみ最小化状態
-    let isTempExpanded = false; // メニューから呼ばれた際の一時展開フラグ
+    let isPinned = true;
+    let isCollapsed = false;
+    let isTempExpanded = false;
     let savedPanelHeight = "600px";
+    let showTreeNav = true;
+
     let panel = null;
     let listEl = null;
     let searchEl = null;
     let titleEl = null;
     let bodyEl = null;
     let statusEl = null;
-    let folderClipboard = null; // ★ フォルダ丸ごとコピー用（{ type, name, childrenNames, items }）
+
     let interactionMode = "normal";
     let pendingBlockData = null;
     let lastMouseEvent = null;
     let lastContextMenuEvent = null;
 
-    const DB_NAME = "BF2042Portal_JSCodeStock_DB";
-    const DB_STORE = "state_store";
+    function cloneDefault() {
+        return {
+            items: [],
+            parents: DEFAULT_PARENTS.slice(),
+            children: DEFAULT_CHILDREN.map(x => x.slice()),
+            palette: DEFAULT_PALETTE.slice(),
+            filterParent: 0,
+            filterChild: [0, 0, 0, 0, 0, 0, 0, 0],
+            filterColor: null,
+            currentColor: 0,
+            parentCount: 4,
+            childCount: 6,
+            windowBounds: { left: null, top: null, width: 400, height: 600 }
+        };
+    }
 
+    // --- IndexedDB 大容量ストレージ ---
     function openDB() {
         return new Promise((resolve, reject) => {
             const req = indexedDB.open(DB_NAME, 1);
@@ -91,31 +113,13 @@
         }));
     }
 
-    function cloneDefault() {
-        return {
-            items: [],
-            parents: DEFAULT_PARENTS.slice(),
-            children: DEFAULT_CHILDREN.map(x => x.slice()),
-            palette: DEFAULT_PALETTE.slice(),
-            filterParent: 0,
-            filterChild: [0, 0, 0, 0],
-            filterColor: null,
-            currentColor: 0,
-            parentCount: 4, // ★ 親タブ数
-            childCount: 6,  // ★ 子タブ数
-            windowBounds: { left: null, top: null, width: 400, height: 600 }
-        };
-    }
-
     async function loadState() {
         try {
             let saved = null;
-            // 1. 大容量 IndexedDB から読み込み
             try {
                 saved = await idbGet("app_state");
             } catch (_) { }
 
-            // 2. 初回のみ従来の localStorage から自動移行
             if (!saved) {
                 const raw = localStorage.getItem(STORAGE_KEY);
                 if (raw) {
@@ -145,7 +149,6 @@
     }
 
     function saveState() {
-        // 大容量 IndexedDB に保存（数百MB〜数GB対応）
         idbSet("app_state", state).then(() => {
             setStatus("Saved");
         }).catch(err => {
@@ -157,6 +160,43 @@
                 setStatus("Save failed");
             }
         });
+    }
+
+    function ensureStateIntegrity() {
+        state.parentCount = Math.max(1, Math.min(8, state.parentCount || 4));
+        state.childCount = Math.max(1, Math.min(8, state.childCount || 6));
+
+        if (!Array.isArray(state.parents)) state.parents = [];
+        while (state.parents.length < 8) {
+            state.parents.push(String.fromCharCode(65 + state.parents.length));
+        }
+
+        if (!Array.isArray(state.children)) state.children = [];
+        while (state.children.length < 8) {
+            state.children.push([]);
+        }
+
+        for (let p = 0; p < 8; p++) {
+            if (!Array.isArray(state.children[p])) state.children[p] = [];
+            const pChar = state.parents[p] || String.fromCharCode(65 + p);
+            while (state.children[p].length < 8) {
+                state.children[p].push(pChar + "-" + (state.children[p].length + 1));
+            }
+        }
+
+        if (!Array.isArray(state.filterChild)) state.filterChild = Array(8).fill(0);
+        while (state.filterChild.length < 8) {
+            state.filterChild.push(0);
+        }
+
+        if (state.filterParent >= state.parentCount || state.filterParent < 0) {
+            state.filterParent = 0;
+        }
+        for (let p = 0; p < 8; p++) {
+            if (state.filterChild[p] >= state.childCount || state.filterChild[p] < 0) {
+                state.filterChild[p] = 0;
+            }
+        }
     }
 
     function uid() {
@@ -190,6 +230,66 @@
         return Promise.reject(new Error("Clipboard API unavailable"));
     }
 
+    function saveWindowBounds() {
+        if (!panel || isCollapsed) return;
+        const rect = panel.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+            const h = Math.round(rect.height);
+            state.windowBounds = {
+                left: Math.round(rect.left),
+                top: Math.round(rect.top),
+                width: Math.round(rect.width),
+                height: h
+            };
+            savedPanelHeight = h + "px";
+            saveState();
+        }
+    }
+
+    function applySavedWindowBounds() {
+        if (!panel || !state.windowBounds) return false;
+        const b = state.windowBounds;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        if (b.width) panel.style.width = Math.max(320, Math.min(b.width, vw - 16)) + "px";
+        if (b.height) panel.style.height = Math.max(200, Math.min(b.height, vh - 16)) + "px";
+
+        if (isPinned && b.left !== null && b.top !== null) {
+            const maxL = Math.max(8, vw - (b.width || 400) - 8);
+            const maxT = Math.max(8, vh - (b.height || 600) - 8);
+            panel.style.left = Math.max(8, Math.min(b.left, maxL)) + "px";
+            panel.style.top = Math.max(8, Math.min(b.top, maxT)) + "px";
+            panel.style.right = "auto";
+            return true;
+        }
+        return false;
+    }
+
+    function positionPanelAtContext() {
+        if (!panel) return;
+        const e = lastContextMenuEvent || lastMouseEvent;
+        if (!e) return;
+
+        const gap = 12;
+        const rect = panel.getBoundingClientRect();
+        const w = rect.width || 400;
+        const h = rect.height || 600;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        let left = e.clientX + gap;
+        if (left + w > vw - 8) left = e.clientX - w - gap;
+        left = Math.max(8, Math.min(left, vw - w - 8));
+
+        let top = e.clientY - 20;
+        top = Math.max(8, Math.min(top, vh - h - 8));
+
+        panel.style.left = left + "px";
+        panel.style.top = top + "px";
+        panel.style.right = "auto";
+    }
+
     function injectStyle() {
         if (document.getElementById("js-code-stock-style")) return;
         const style = document.createElement("style");
@@ -198,10 +298,7 @@
 #js-code-stock-panel{position:fixed;left:18px;top:58px;width:400px;height:600px;min-width:320px;min-height:320px;max-width:calc(100vw - 36px);max-height:calc(100vh - 76px);z-index:2147483646;background:#111;color:#fff;border:1px solid #333;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);font-family:sans-serif;display:flex;flex-direction:column;overflow:hidden;padding:6px;resize:both;user-select:none;-webkit-user-select:none}
 #js-code-stock-panel *{box-sizing:border-box}
 
-/* コンテナ：絶対に画面外に突き抜けさせない */
 #js-code-stock-panel .jcs-container{display:flex;flex-direction:column;height:100%;max-height:100%;padding:0 4px;overflow:hidden}
-
-/* ★ 上部固定エリア：flex-shrink:0 で絶対に押し潰させない ★ */
 #js-code-stock-panel .jcs-head{flex-shrink:0;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 #js-code-stock-panel .jcs-title{font-size:18px;text-align:left;cursor:grab;user-select:none;flex:1}
 #js-code-stock-panel .jcs-title:active{cursor:grabbing}
@@ -212,7 +309,6 @@
 #js-code-stock-panel .jcs-close{font-size:18px;padding:1px 6px;background:#7a2020}
 #js-code-stock-panel .jcs-close:hover{background:#a52a2a}
 
-/* 親タブ・子タブ（潰れ防止） */
 #js-code-stock-panel .jcs-tabs{flex-shrink:0;height:36px;display:flex;gap:0;background:#1f1f1f;padding:2px 12px 0;overflow:hidden}
 #js-code-stock-panel .jcs-tab{flex:1;max-width:240px;height:36px;background:#2d2d2d;color:#9aa0a6;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;position:relative;border:none;border-top-left-radius:4px;border-top-right-radius:4px;border-bottom-left-radius:0;border-bottom-right-radius:0;transform:perspective(40px) rotateX(6deg);transform-origin:bottom;z-index:1;box-shadow:0 2px 0 0 #fff}
 #js-code-stock-panel .jcs-tab:hover{background:#35363a;color:#e8eaed;z-index:2}
@@ -222,7 +318,6 @@
 #js-code-stock-panel .jcs-colors .jcs-tab{flex:1;min-width:0;height:18px;padding:0;box-shadow:none;transform:none;border-radius:2px}
 #js-code-stock-panel .jcs-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 
-/* 入力欄・フィルター・見出しバー（潰れ防止） */
 #js-code-stock-panel .jcs-input-section{flex-shrink:0;margin-bottom:6px}
 #js-code-stock-panel .jcs-input-row{display:flex;gap:4px}
 #js-code-stock-panel .jcs-input-left{width:100%;display:flex;flex-direction:column;gap:3px}
@@ -248,32 +343,28 @@
 #js-code-stock-panel .jcs-tree-toggle:hover{background:#3a3a3a;color:#fff}
 #js-code-stock-panel .jcs-body-title{font-size:12px;font-weight:bold;color:#888}
 
-/* ★ メインエリア：余った縦幅を100%フル活用（flex: 1 1 0; min-height: 0;） ★ */
 #js-code-stock-panel .jcs-main-pane{display:flex;flex:1 1 0;min-height:0;height:100%;margin-top:4px;gap:6px;overflow:hidden}
 
-/* ★ 左ツリーナビ：枠内で厳格にスクロールバーを表示 ★ */
 #js-code-stock-panel .jcs-tree-nav{width:145px;min-width:130px;max-width:180px;height:100%;max-height:100%;background:#181818;border:1px solid #333;border-radius:4px;overflow-y:scroll!important;overflow-x:hidden;padding:4px;flex-shrink:0;display:block}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar{width:8px!important;display:block!important}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-track{background:#161616!important}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb{background:#555!important;border-radius:4px}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb:hover{background:#777!important}
 
-#js-code-stock-panel .jcs-tree-parent{font-size:13.5px;font-weight:bold;color:#ddd;background:#242424;padding:5px 8px;border-radius:3px;cursor:pointer;margin-top:5px;margin-bottom:2px;border-left:3px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
-#js-code-stock-panel .jcs-tree-parent:hover{background:#2e2e2e;color:#fff}
-#js-code-stock-panel .jcs-tree-parent.active{border-left-color:#4da3ff;background:#252d3a;color:#fff}
+#js-code-stock-panel .jcs-tree-parent{font-size:11px;font-weight:bold;color:#888;background:transparent;padding:6px 6px 2px 4px;margin-top:6px;margin-bottom:2px;border:none;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+#js-code-stock-panel .jcs-tree-parent:hover{color:#ccc;background:rgba(255,255,255,0.04)}
+#js-code-stock-panel .jcs-tree-parent.active{border:none;background:transparent;color:#888}
 
 #js-code-stock-panel .jcs-tree-child{font-size:12.5px;color:#aaa;padding:4px 8px 4px 14px;border-radius:2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:2px solid transparent;display:block;margin-bottom:1px}
 #js-code-stock-panel .jcs-tree-child:hover{background:#2a2a2a;color:#ddd}
 #js-code-stock-panel .jcs-tree-child.active{color:#fff;background:#35363a;font-weight:bold;border-left-color:#2ecc71}
 
-/* ★ 右側コードリスト：押し潰されず快適にスクロール ★ */
 #js-code-stock-panel .jcs-list{flex:1 1 0;min-width:0;height:100%;max-height:100%;overflow-y:auto!important;padding-right:2px}
 #js-code-stock-panel .jcs-list::-webkit-scrollbar{width:8px}
 #js-code-stock-panel .jcs-list::-webkit-scrollbar-track{background:#1e1e1e}
 #js-code-stock-panel .jcs-list::-webkit-scrollbar-thumb{background:#444;border-radius:6px}
 #js-code-stock-panel .jcs-list::-webkit-scrollbar-thumb:hover{background:#666}
 
-/* アイテム項目 */
 #js-code-stock-panel .jcs-item{display:flex;background:#262626;padding:4px;margin-bottom:2px;cursor:pointer;font-size:16px;justify-content:space-between;align-items:center;border:1px solid transparent;position:relative}
 #js-code-stock-panel .jcs-item:hover{background:#333}
 #js-code-stock-panel .jcs-item.selected{background:#2a2f3a;border-left:3px solid #4da3ff}
@@ -294,7 +385,6 @@
 #js-code-stock-panel .jcs-hidden{display:none!important}
 #js-code-stock-panel input:focus,#js-code-stock-panel textarea:focus{outline:1px solid #4a7bd4}
 
-/* 設定メニュー・ボタン */
 #js-code-stock-panel .jcs-gear{font-size:13px;padding:3px 6px;background:#333}
 #js-code-stock-panel .jcs-pin{font-size:13px;padding:3px 5px;background:#333}
 #js-code-stock-panel .jcs-pin.unlocked{opacity:0.45;filter:grayscale(1)}
@@ -321,14 +411,169 @@
         return b;
     }
 
-    function showPrompt(x, y, text, value, yes) {
+    function exportData() {
+        const data = {
+            items: state.items,
+            config: {
+                parentCount: state.parentCount || 4,
+                childCount: state.childCount || 6,
+                parents: state.parents,
+                children: state.children,
+                palette: state.palette
+            }
+        };
+        const text = JSON.stringify(data, null, 2);
+        copyText(text).then(() => setStatus("Export JSON copied to clipboard"));
+        const blob = new Blob([text], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    function importData() {
+        const input = document.createElement("input");
+        input.type = "file"; input.accept = ".json,application/json";
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const data = JSON.parse(reader.result);
+                    if (!confirm("Overwrite current JS Code Stock data?")) return;
+                    if (Array.isArray(data.items)) state.items = data.items;
+                    if (data.config) {
+                        if (data.config.parentCount) state.parentCount = Math.max(1, Math.min(8, Number(data.config.parentCount) || 4));
+                        if (data.config.childCount) state.childCount = Math.max(1, Math.min(8, Number(data.config.childCount) || 6));
+                        if (Array.isArray(data.config.parents)) state.parents = data.config.parents.slice();
+                        if (Array.isArray(data.config.children)) state.children = data.config.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
+                        if (Array.isArray(data.config.palette) && data.config.palette.length === COLOR_COUNT) state.palette = data.config.palette.slice();
+                    }
+                    saveState();
+                    renderPanel();
+                    setStatus("Import complete");
+                } catch (e) {
+                    setStatus("Loading failed");
+                    BF2042Portal.Shared.logError("JS Code Stock import", String(e));
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+
+    function exportCurrentTagData() {
+        const pIdx = state.filterParent;
+        const cIdx = state.filterChild[pIdx];
+        const pName = state.parents[pIdx] || ("P" + pIdx);
+        const cName = (state.children[pIdx] && state.children[pIdx][cIdx]) || ("C" + cIdx);
+
+        const targetItems = state.items
+            .filter(i => i.parent === pIdx && i.child === cIdx)
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        if (targetItems.length === 0) {
+            alert("No snippets found in the current tag.");
+            return;
+        }
+
+        const data = {
+            type: "CodeStock_TagExport",
+            parentName: pName,
+            childName: cName,
+            items: targetItems.map(i => ({
+                title: i.title,
+                body: i.body,
+                color: i.color || 0
+            }))
+        };
+
+        const text = JSON.stringify(data, null, 2);
+        copyText(text).then(() => setStatus("Tag JSON copied to clipboard"));
+        const blob = new Blob([text], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `Tag_${pName}_${cName}_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    function importCurrentTagData() {
+        const pIdx = state.filterParent;
+        const cIdx = state.filterChild[pIdx];
+        const pName = state.parents[pIdx] || ("P" + pIdx);
+        const cName = (state.children[pIdx] && state.children[pIdx][cIdx]) || ("C" + cIdx);
+
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".json,application/json";
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const raw = JSON.parse(reader.result);
+                    const importList = Array.isArray(raw) ? raw : (raw.items || []);
+
+                    if (!Array.isArray(importList) || importList.length === 0) {
+                        alert("No valid snippets found in the file.");
+                        return;
+                    }
+
+                    if (!confirm(`Add ${importList.length} snippet(s) into current tag [${pName} > ${cName}]?`)) {
+                        return;
+                    }
+
+                    const currentItems = state.items.filter(i => i.parent === pIdx && i.child === cIdx);
+                    let nextOrderNum = currentItems.length;
+                    let addedCount = 0;
+
+                    importList.forEach(item => {
+                        if (item && item.title) {
+                            state.items.push({
+                                id: uid(),
+                                title: item.title,
+                                body: item.body || "",
+                                parent: pIdx,
+                                child: cIdx,
+                                order: nextOrderNum++,
+                                color: (item.color !== undefined) ? item.color : state.currentColor
+                            });
+                            addedCount++;
+                        }
+                    });
+
+                    saveState();
+                    renderPanel();
+                    alert(`Import complete!\nAdded ${addedCount} snippet(s) into [${pName} > ${cName}].`);
+                    setStatus(`TagImport: ${addedCount} items added`);
+                } catch (e) {
+                    alert("Failed to read the file.");
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+
+    function showFolderMenu(e, type, index) {
         const old = document.getElementById("uiPrompt");
         if (old) old.remove();
+
+        const isParent = (type === "parent");
+        const currentName = isParent ? state.parents[index] : state.children[state.filterParent][index];
+        const labelTitle = isParent ? "Folder Name (Parent)" : "SubFolder Name (Child)";
+
         const box = document.createElement("div");
         box.id = "uiPrompt";
         box.style.position = "fixed";
-        box.style.left = Math.min(x, window.innerWidth - 200) + "px";
-        box.style.top = Math.min(y, window.innerHeight - 120) + "px";
+        box.style.left = Math.min(e.clientX, window.innerWidth - 220) + "px";
+        box.style.top = Math.min(e.clientY, window.innerHeight - 200) + "px";
         box.style.background = "#1e1e1e";
         box.style.border = "1px solid #444";
         box.style.borderRadius = "6px";
@@ -336,74 +581,770 @@
         box.style.zIndex = 2147483647;
         box.style.color = "#ddd";
         box.style.fontSize = "12px";
-        box.style.boxShadow = "0 4px 14px rgba(0,0,0,0.6)";
+        box.style.boxShadow = "0 6px 18px rgba(0,0,0,0.8)";
+        box.style.minWidth = "190px";
 
         const t = document.createElement("div");
-        t.textContent = text;
+        t.textContent = labelTitle;
         t.style.marginBottom = "6px";
+        t.style.fontWeight = "bold";
 
         const input = document.createElement("input");
-        input.value = value;
-        input.style.width = "160px";
+        input.value = currentName;
+        input.style.width = "100%";
+        input.style.boxSizing = "border-box";
         input.style.background = "#2a2a2a";
         input.style.border = "1px solid #555";
         input.style.color = "#ddd";
         input.style.padding = "4px";
-        input.style.borderRadius = "4px";
+        input.style.borderRadius = "3px";
         input.style.marginBottom = "8px";
 
-        const ok = makeButton("OK", () => { yes(input.value); box.remove(); });
-        const cancel = makeButton("Cancel", () => box.remove());
-        [ok, cancel].forEach(b => {
-            b.style.background = "#2d2d2d";
-            b.style.border = "1px solid #555";
-            b.style.color = "#ddd";
-            b.style.padding = "4px 12px";
-            b.style.marginRight = "6px";
-            b.style.borderRadius = "4px";
-            b.style.cursor = "pointer";
-        });
+        const rowBtn = document.createElement("div");
+        rowBtn.style.display = "flex";
+        rowBtn.style.gap = "6px";
 
-        box.append(t, input, document.createElement("br"), ok, cancel);
+        const ok = makeButton("OK", () => {
+            const val = input.value.trim();
+            if (val) {
+                if (isParent) state.parents[index] = val;
+                else state.children[state.filterParent][index] = val;
+                saveState();
+                renderPanel();
+            }
+            box.remove();
+        });
+        ok.style.flex = "1";
+        ok.style.padding = "4px";
+
+        const cancel = makeButton("Cancel", () => box.remove());
+        cancel.style.flex = "1";
+        cancel.style.padding = "4px";
+        rowBtn.append(ok, cancel);
+
+        const sep = document.createElement("div");
+        sep.style.height = "1px";
+        sep.style.background = "#444";
+        sep.style.margin = "10px 0 8px";
+
+        const copyBtn = makeButton("Folder: Copy (Entire TAB)", () => {
+            if (isParent) {
+                folderClipboard = {
+                    type: "parent",
+                    name: state.parents[index],
+                    childrenNames: (state.children[index] || []).slice(),
+                    items: state.items.filter(i => i.parent === index).map(i => ({ ...i }))
+                };
+                setStatus(`Copied parent folder [${state.parents[index]}]`);
+            } else {
+                folderClipboard = {
+                    type: "child",
+                    name: state.children[state.filterParent][index],
+                    items: state.items.filter(i => i.parent === state.filterParent && i.child === index).map(i => ({ ...i }))
+                };
+                setStatus(`Copied subfolder [${state.children[state.filterParent][index]}]`);
+            }
+            box.remove();
+        });
+        copyBtn.style.width = "100%";
+        copyBtn.style.padding = "5px 6px";
+        copyBtn.style.marginBottom = "6px";
+        copyBtn.style.background = "#2a5298";
+        copyBtn.style.fontSize = "11px";
+        copyBtn.onmouseenter = () => copyBtn.style.background = "#3b6fc9";
+        copyBtn.onmouseleave = () => copyBtn.style.background = "#2a5298";
+
+        const canPaste = folderClipboard && (folderClipboard.type === type);
+        const pasteBtn = makeButton("Folder: Paste (Overwrite TAB)", () => {
+            if (!folderClipboard) return;
+            if (folderClipboard.type !== type) {
+                alert(`Type mismatch: A ${folderClipboard.type === "parent" ? "parent" : "sub"} folder is currently copied.`);
+                return;
+            }
+
+            if (!confirm(`Overwrite TAB [${currentName}] with [${folderClipboard.name}]?\nAll existing snippets in this TAB will be replaced.`)) {
+                return;
+            }
+
+            if (isParent) {
+                state.parents[index] = folderClipboard.name;
+                if (Array.isArray(folderClipboard.childrenNames)) {
+                    state.children[index] = folderClipboard.childrenNames.slice();
+                }
+                state.items = state.items.filter(i => i.parent !== index);
+                folderClipboard.items.forEach(i => {
+                    state.items.push({ ...i, id: uid(), parent: index });
+                });
+                setStatus(`Pasted parent folder [${folderClipboard.name}]`);
+            } else {
+                const pIdx = state.filterParent;
+                state.children[pIdx][index] = folderClipboard.name;
+                state.items = state.items.filter(i => !(i.parent === pIdx && i.child === index));
+                folderClipboard.items.forEach(i => {
+                    state.items.push({ ...i, id: uid(), parent: pIdx, child: index });
+                });
+                setStatus(`Pasted subfolder [${folderClipboard.name}]`);
+            }
+
+            saveState();
+            renderPanel();
+            box.remove();
+        });
+        pasteBtn.style.width = "100%";
+        pasteBtn.style.padding = "5px 6px";
+        pasteBtn.style.background = canPaste ? "#3d4b3d" : "#333";
+        pasteBtn.style.color = canPaste ? "#fff" : "#777";
+        pasteBtn.style.fontSize = "11px";
+        if (canPaste) {
+            pasteBtn.onmouseenter = () => pasteBtn.style.background = "#4e6a4e";
+            pasteBtn.onmouseleave = () => pasteBtn.style.background = "#3d4b3d";
+        }
+
+        box.append(t, input, rowBtn, sep, copyBtn, pasteBtn);
         document.body.appendChild(box);
         input.focus();
+        input.select();
+
+        setTimeout(() => {
+            const onOutside = (ev) => {
+                if (!box.contains(ev.target)) {
+                    box.remove();
+                    document.removeEventListener("mousedown", onOutside);
+                }
+            };
+            document.addEventListener("mousedown", onOutside);
+        }, 10);
     }
 
-    function showConfirm(x, y, text, yes) {
-        const old = document.getElementById("uiConfirm");
-        if (old) old.remove();
-        const box = document.createElement("div");
-        box.id = "uiConfirm";
-        box.style.position = "fixed";
-        box.style.left = Math.min(x, window.innerWidth - 180) + "px";
-        box.style.top = Math.min(y, window.innerHeight - 100) + "px";
-        box.style.background = "#1e1e1e";
-        box.style.border = "1px solid #444";
-        box.style.borderRadius = "6px";
-        box.style.padding = "10px";
-        box.style.zIndex = 2147483647;
-        box.style.color = "#ddd";
-        box.style.fontSize = "12px";
-        box.style.boxShadow = "0 4px 14px rgba(0,0,0,0.6)";
+    function showSettingsMenu(anchorBtn) {
+        const old = document.getElementById("jcs-settings-menu");
+        if (old) { old.remove(); return; }
 
-        const t = document.createElement("div");
-        t.textContent = text;
-        t.style.marginBottom = "10px";
+        const rect = anchorBtn.getBoundingClientRect();
+        const menu = document.createElement("div");
+        menu.id = "jcs-settings-menu";
+        menu.style.left = Math.min(rect.left, window.innerWidth - 220) + "px";
+        menu.style.top = (rect.bottom + 4) + "px";
 
-        const ok = makeButton("OK", () => { yes(); box.remove(); });
-        const cancel = makeButton("Cancel", () => box.remove());
-        [ok, cancel].forEach(b => {
-            b.style.background = "#2d2d2d";
-            b.style.border = "1px solid #555";
-            b.style.color = "#ddd";
-            b.style.padding = "4px 12px";
-            b.style.marginRight = "6px";
-            b.style.borderRadius = "4px";
-            b.style.cursor = "pointer";
+        const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
+        const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
+
+        const tagsExpBtn = makeButton("TagsExport (Selected Tag)", () => {
+            exportCurrentTagData();
+            menu.remove();
+        }, "jcs-menu-btn");
+        tagsExpBtn.style.background = "#3d4b3d";
+        tagsExpBtn.onmouseenter = () => tagsExpBtn.style.background = "#4e6a4e";
+        tagsExpBtn.onmouseleave = () => tagsExpBtn.style.background = "#3d4b3d";
+
+        const tagsImpBtn = makeButton("TagsImport (Append to Tag)", () => {
+            importCurrentTagData();
+            menu.remove();
+        }, "jcs-menu-btn");
+        tagsImpBtn.style.background = "#3d4b3d";
+        tagsImpBtn.onmouseenter = () => tagsImpBtn.style.background = "#4e6a4e";
+        tagsImpBtn.onmouseleave = () => tagsImpBtn.style.background = "#3d4b3d";
+
+        const sep1 = document.createElement("div");
+        sep1.className = "jcs-menu-sep";
+
+        const pRow = document.createElement("div");
+        pRow.className = "jcs-menu-row";
+        const pLabel = document.createElement("span");
+        pLabel.textContent = "PARENT";
+        const pCounter = document.createElement("div");
+        pCounter.className = "jcs-counter";
+        const pVal = document.createElement("span");
+        pVal.textContent = state.parentCount;
+
+        const pMinus = makeButton("-", () => {
+            if (state.parentCount > 1) {
+                state.parentCount--;
+                pVal.textContent = state.parentCount;
+                if (state.filterParent >= state.parentCount) state.filterParent = state.parentCount - 1;
+                saveState();
+                renderPanel();
+            }
+        });
+        const pPlus = makeButton("+", () => {
+            if (state.parentCount < 8) {
+                state.parentCount++;
+                while (state.parents.length < state.parentCount) {
+                    const char = String.fromCharCode(65 + state.parents.length);
+                    state.parents.push(char);
+                    const newChildren = [];
+                    for (let c = 0; c < 8; c++) newChildren.push(char + "-" + (c + 1));
+                    state.children.push(newChildren);
+                }
+                pVal.textContent = state.parentCount;
+                saveState();
+                renderPanel();
+            }
+        });
+        pCounter.append(pMinus, pVal, pPlus);
+        pRow.append(pLabel, pCounter);
+
+        const cRow = document.createElement("div");
+        cRow.className = "jcs-menu-row";
+        const cLabel = document.createElement("span");
+        cLabel.textContent = "CHILD";
+        const cCounter = document.createElement("div");
+        cCounter.className = "jcs-counter";
+        const cVal = document.createElement("span");
+        cVal.textContent = state.childCount;
+
+        const cMinus = makeButton("-", () => {
+            if (state.childCount > 1) {
+                state.childCount--;
+                cVal.textContent = state.childCount;
+                state.filterChild = state.filterChild.map(v => Math.min(v, state.childCount - 1));
+                saveState();
+                renderPanel();
+            }
+        });
+        const cPlus = makeButton("+", () => {
+            if (state.childCount < 8) {
+                state.childCount++;
+                state.children.forEach((arr, pIdx) => {
+                    const pChar = state.parents[pIdx] || String.fromCharCode(65 + pIdx);
+                    while (arr.length < state.childCount) {
+                        arr.push(pChar + "-" + (arr.length + 1));
+                    }
+                });
+                cVal.textContent = state.childCount;
+                saveState();
+                renderPanel();
+            }
+        });
+        cCounter.append(cMinus, cVal, cPlus);
+        cRow.append(cLabel, cCounter);
+
+        const sep2 = document.createElement("div");
+        sep2.className = "jcs-menu-sep";
+
+        const resetBtn = makeButton("RESET ALL DATA", () => {
+            if (confirm("Reset all snippets, categories, and settings to default?\n(This action cannot be undone.)")) {
+                state = cloneDefault();
+                saveState();
+                renderPanel();
+                setStatus("Reset complete");
+                menu.remove();
+            }
+        }, "jcs-menu-btn");
+        resetBtn.style.background = "#5a2020";
+        resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
+        resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
+
+        menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, pRow, cRow, sep2, resetBtn);
+        document.body.appendChild(menu);
+
+        setTimeout(() => {
+            const onOutside = (e) => {
+                if (!menu.contains(e.target) && e.target !== anchorBtn) {
+                    menu.remove();
+                    document.removeEventListener("mousedown", onOutside);
+                }
+            };
+            document.addEventListener("mousedown", onOutside);
+        }, 10);
+    }
+
+    function renderPanel() {
+        if (!panel) return;
+
+        ensureStateIntegrity();
+
+        const preservedTitle = titleEl ? titleEl.value : null;
+        const preservedBody = bodyEl ? bodyEl.value : null;
+
+        const prevTreeNav = panel.querySelector(".jcs-tree-nav");
+        const savedTreeScrollTop = prevTreeNav ? prevTreeNav.scrollTop : 0;
+
+        panel.innerHTML = "";
+
+        const container = document.createElement("div");
+        container.className = "jcs-container";
+
+        const head = document.createElement("div");
+        head.className = "jcs-head";
+        const ttl = document.createElement("div");
+        ttl.className = "jcs-title";
+        ttl.textContent = isCollapsed ? "🐛JS Stock ▶" : "🐛JS Stock ▼";
+        ttl.title = "Click to collapse/expand (Drag to move)";
+
+        const tools = document.createElement("div");
+        tools.className = "jcs-tools";
+
+        const gearBtn = makeButton("⚙️", (e) => {
+            e.stopPropagation();
+            showSettingsMenu(gearBtn);
+        }, "jcs-gear");
+        gearBtn.title = "Settings (EXPORT / IMPORT / Tab Count)";
+
+        const pinBtn = makeButton(isPinned ? "🔒️" : "🔓️", () => {
+            isPinned = !isPinned;
+            renderPanel();
+        }, "jcs-pin" + (isPinned ? "" : " unlocked"));
+        pinBtn.title = isPinned ? "Locked (Keep open)" : "Unlocked (Auto close)";
+
+        const close = makeButton("✕", closePanel, "jcs-close");
+        close.title = "Close";
+
+        tools.append(gearBtn, pinBtn, close);
+        head.append(ttl, tools);
+
+        if (isCollapsed) {
+            panel.classList.add("collapsed");
+            container.appendChild(head);
+            panel.appendChild(container);
+            return;
+        }
+
+        panel.classList.remove("collapsed");
+        if (state.windowBounds && state.windowBounds.height) {
+            panel.style.height = state.windowBounds.height + "px";
+        } else if (savedPanelHeight) {
+            panel.style.height = savedPanelHeight;
+        }
+
+        const parentTabs = document.createElement("div");
+        parentTabs.className = "jcs-tabs";
+        state.parents.slice(0, state.parentCount).forEach((name, i) => {
+            const b = makeButton(name, () => {
+                state.filterParent = i;
+                renderPanel();
+            }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
+            b.oncontextmenu = e => {
+                e.preventDefault();
+                showFolderMenu(e, "parent", i);
+            };
+            parentTabs.appendChild(b);
         });
 
-        box.append(t, ok, cancel);
-        document.body.appendChild(box);
+        const childTabs = document.createElement("div");
+        childTabs.className = "jcs-tabs jcs-child";
+        (state.children[state.filterParent] || []).slice(0, state.childCount).forEach((name, i) => {
+            const b = makeButton(name, () => {
+                state.filterChild[state.filterParent] = i;
+                renderPanel();
+            }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
+            b.oncontextmenu = e => {
+                e.preventDefault();
+                showFolderMenu(e, "child", i);
+            };
+            childTabs.appendChild(b);
+        });
+
+        const colorTabs = document.createElement("div");
+        colorTabs.className = "jcs-tabs jcs-colors";
+        state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
+            const b = makeButton("", () => {
+                state.currentColor = i;
+                renderPanel();
+            }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
+            b.style.background = c;
+            b.title = "Color " + (i + 1) + " — right click to change";
+            b.oncontextmenu = e => {
+                e.preventDefault();
+                const picker = document.createElement("input");
+                picker.type = "color";
+                picker.value = state.palette[i];
+                picker.onchange = () => {
+                    state.palette[i] = picker.value;
+                    saveState();
+                    renderPanel();
+                };
+                picker.click();
+            };
+            colorTabs.appendChild(b);
+        });
+
+        const inputSection = document.createElement("div");
+        inputSection.className = "jcs-input-section";
+        const inputRow = document.createElement("div");
+        inputRow.className = "jcs-input-row";
+        const inputLeft = document.createElement("div");
+        inputLeft.className = "jcs-input-left";
+
+        const titleWrap = document.createElement("div");
+        titleWrap.className = "jcs-input-wrapper";
+        titleEl = document.createElement("input");
+        titleEl.placeholder = "🏷️Code name";
+        const clearTitle = makeButton("✕", () => {
+            titleEl.value = "";
+            titleEl.focus();
+        }, "jcs-clear");
+        titleWrap.append(titleEl, clearTitle);
+
+        const bodyWrap = document.createElement("div");
+        bodyWrap.className = "jcs-input-wrapper";
+        bodyEl = document.createElement("textarea");
+        bodyEl.placeholder = "📝Code body";
+        bodyEl.addEventListener("paste", (e) => {
+            const clipboardData = (e.clipboardData || window.clipboardData).getData('text');
+            if (titleEl.value.trim() !== "") return;
+            try {
+                const data = JSON.parse(clipboardData);
+                if (data.type) titleEl.value = data.type;
+            } catch (_) { }
+        });
+        const clearBody = makeButton("✕", () => {
+            bodyEl.value = "";
+            bodyEl.focus();
+        }, "jcs-clear");
+        bodyWrap.append(bodyEl, clearBody);
+
+        const inputRight = document.createElement("div");
+        inputRight.className = "jcs-input-right";
+        inputRight.append(
+            makeButton(hasEditingId() ? "UPDATE" : "ADD", addItem, "jcs-add"),
+            makeButton("CANCEL", cancelEdit, "jcs-cancel")
+        );
+        inputLeft.append(titleWrap, bodyWrap, inputRight);
+        inputRow.appendChild(inputLeft);
+        inputSection.appendChild(inputRow);
+
+        const toggle = makeButton(inputHidden ? "≡ NEW ENTRY ≡" : "≡ CLOSE ≡", () => {
+            inputHidden = !inputHidden;
+            if (inputHidden) {
+                editingIdValue = null;
+                lastEditingId = null;
+            }
+            renderPanel();
+            if (!inputHidden && titleEl) titleEl.focus();
+        });
+        toggle.id = "jcs-toggle-input";
+        inputSection.appendChild(toggle);
+
+        if (inputHidden) {
+            inputRow.classList.add("jcs-hidden");
+            colorTabs.classList.add("jcs-hidden");
+        } else if (hasEditingId()) {
+            const item = state.items.find(x => x.id === editingIdValue);
+            if (item) {
+                if (lastEditingId !== editingIdValue) {
+                    titleEl.value = item.title;
+                    bodyEl.value = item.body;
+                    lastEditingId = editingIdValue;
+                } else {
+                    titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
+                    bodyEl.value = preservedBody !== null ? preservedBody : item.body;
+                }
+                titleEl.style.borderLeft = "6px solid " + state.palette[item.color || 0];
+                titleEl.style.paddingLeft = "6px";
+            }
+        } else {
+            lastEditingId = null;
+            if (preservedTitle !== null) titleEl.value = preservedTitle;
+            if (preservedBody !== null) bodyEl.value = preservedBody;
+            titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
+            titleEl.style.paddingLeft = "6px";
+        }
+
+        const filter = document.createElement("div");
+        filter.className = "jcs-filter";
+        const fc = document.createElement("div");
+        fc.className = "jcs-tabs jcs-filter-colors";
+
+        const all = makeButton("ALL", () => {
+            state.filterColor = null;
+            renderPanel();
+        }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
+        fc.appendChild(all);
+
+        state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
+            const b = makeButton("", () => {
+                state.filterColor = state.filterColor === i ? null : i;
+                renderPanel();
+            }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
+            b.style.background = c;
+            fc.appendChild(b);
+        });
+
+        searchEl = document.createElement("input");
+        searchEl.className = "jcs-search";
+        searchEl.placeholder = "🔎search";
+        searchEl.oninput = renderList;
+        filter.append(fc, searchEl);
+
+        const bodyHead = document.createElement("div");
+        bodyHead.className = "jcs-body-head";
+        const treeToggleBtn = makeButton(showTreeNav ? "TAB ▼" : "TAB ▶", () => {
+            showTreeNav = !showTreeNav;
+            renderPanel();
+        }, "jcs-tree-toggle");
+        treeToggleBtn.title = "Toggle left tree sidebar";
+
+        const bodyTitle = document.createElement("span");
+        bodyTitle.className = "jcs-body-title";
+        bodyTitle.textContent = "CodeLists";
+        bodyHead.append(treeToggleBtn, bodyTitle);
+
+        const mainPane = document.createElement("div");
+        mainPane.className = "jcs-main-pane";
+
+        if (showTreeNav) {
+            const treeNav = document.createElement("div");
+            treeNav.className = "jcs-tree-nav";
+
+            for (let p = 0; p < state.parentCount; p++) {
+                const pName = state.parents[p] || ("P" + p);
+                if (String(pName).trim() === "-") {
+                    continue;
+                }
+
+                const pEl = document.createElement("div");
+                pEl.className = "jcs-tree-parent";
+                pEl.textContent = pName;
+                pEl.onclick = () => {
+                    state.filterParent = p;
+                    renderPanel();
+                };
+                pEl.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    showFolderMenu(e, "parent", p);
+                };
+                treeNav.appendChild(pEl);
+
+                const cList = state.children[p] || [];
+                for (let c = 0; c < state.childCount; c++) {
+                    const cName = cList[c] || (state.parents[p] + "-" + (c + 1));
+                    if (String(cName).trim() === "-") {
+                        continue;
+                    }
+
+                    const cEl = document.createElement("div");
+                    const isActive = (state.filterParent === p && state.filterChild[p] === c);
+                    cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
+                    cEl.textContent = cName;
+                    cEl.onclick = () => {
+                        state.filterParent = p;
+                        state.filterChild[p] = c;
+                        renderPanel();
+                    };
+                    cEl.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        showFolderMenu(e, "child", c);
+                    };
+                    treeNav.appendChild(cEl);
+                }
+            }
+
+            mainPane.appendChild(treeNav);
+
+            treeNav.scrollTop = savedTreeScrollTop;
+            requestAnimationFrame(() => {
+                if (treeNav) treeNav.scrollTop = savedTreeScrollTop;
+            });
+        }
+
+        listEl = document.createElement("div");
+        listEl.className = "jcs-list";
+        mainPane.appendChild(listEl);
+
+        const foot = document.createElement("div");
+        foot.className = "jcs-foot";
+        statusEl = document.createElement("span");
+        statusEl.className = "jcs-status";
+        statusEl.textContent = "Ready";
+        foot.appendChild(statusEl);
+
+        container.append(head, parentTabs, childTabs, colorTabs, inputSection, filter, bodyHead, mainPane, foot);
+        panel.appendChild(container);
+
+        renderList();
+    }
+
+    function hasEditingId() { return !!editingIdValue; }
+
+    function renderList() {
+        if (!listEl) return;
+        listEl.innerHTML = "";
+        const q = searchEl ? searchEl.value.toLowerCase() : "";
+        let filtered = state.items.filter(item =>
+            item.parent === state.filterParent &&
+            item.child === state.filterChild[state.filterParent] &&
+            (state.filterColor === null || (item.color || 0) === state.filterColor) &&
+            String(item.title).toLowerCase().includes(q)
+        );
+        filtered.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        filtered.forEach(item => {
+            const id = String(item.id);
+            const row = document.createElement("div");
+            row.className = "jcs-item" + (selectedIds.has(id) ? " selected" : "");
+            row.dataset.id = id;
+
+            if (cutIds.has(id)) {
+                row.style.opacity = "0.4";
+                row.style.border = "1px dashed #888";
+            }
+
+            const drag = document.createElement("button");
+            drag.className = "jcs-drag" + (selectedIds.has(id) ? " active" : "");
+            drag.textContent = "≡";
+            drag.draggable = true;
+
+            drag.oncontextmenu = (e) => {
+                e.preventDefault();
+                if (!selectedIds.has(id)) {
+                    selectedIds.clear();
+                    selectedIds.add(id);
+                    lastSelected = id;
+                    renderList();
+                }
+                showMenu(e, item);
+            };
+
+            drag.onclick = (e) => {
+                e.stopPropagation();
+                let group = filtered.map(i => String(i.id));
+                if (e.shiftKey && lastSelected) {
+                    let a = group.indexOf(lastSelected);
+                    let b = group.indexOf(id);
+                    selectedIds.clear();
+                    let start = Math.min(a, b), end = Math.max(a, b);
+                    for (let i = start; i <= end; i++) selectedIds.add(group[i]);
+                } else if (e.ctrlKey) {
+                    if (selectedIds.has(id)) selectedIds.delete(id);
+                    else { selectedIds.add(id); lastSelected = id; }
+                } else {
+                    if (selectedIds.has(id)) {
+                        selectedIds.delete(id);
+                        lastSelected = null;
+                    } else {
+                        selectedIds.clear();
+                        selectedIds.add(id);
+                        lastSelected = id;
+                    }
+                }
+                renderList();
+            };
+
+            drag.ondragstart = () => {
+                if (!selectedIds.has(id)) {
+                    selectedIds.clear();
+                    selectedIds.add(id);
+                }
+                document.querySelectorAll(".jcs-item").forEach(el => {
+                    if (selectedIds.has(el.dataset.id)) el.classList.add("dragging");
+                });
+            };
+
+            drag.ondragend = () => {
+                document.querySelectorAll(".jcs-item").forEach(el => {
+                    el.classList.remove("dragging", "dragTarget");
+                });
+            };
+
+            row.ondragover = (e) => {
+                e.preventDefault();
+                row.classList.add("dragTarget");
+            };
+            row.ondragleave = () => {
+                row.classList.remove("dragTarget");
+            };
+            row.ondrop = (e) => {
+                e.preventDefault();
+                document.querySelectorAll(".jcs-item").forEach(el => el.classList.remove("dragTarget"));
+                let group = state.items.filter(i =>
+                    i.parent === state.filterParent &&
+                    i.child === state.filterChild[state.filterParent]
+                );
+                group.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+                let moving = group.filter(i => selectedIds.has(String(i.id)));
+                if (moving.length === 0 || selectedIds.has(id)) return;
+
+                let targetIndex = group.findIndex(i => String(i.id) === id);
+                let targetItem = group[targetIndex];
+                let removedBefore = moving.filter(i => (i.order || 0) < (targetItem.order || 0)).length;
+                targetIndex -= removedBefore;
+
+                let remain = group.filter(i => !selectedIds.has(String(i.id)));
+                remain.splice(targetIndex, 0, ...moving);
+                for (let i = 0; i < remain.length; i++) remain[i].order = i;
+
+                selectedIds.clear();
+                lastSelected = null;
+                saveState();
+                renderList();
+            };
+
+            const name = document.createElement("div");
+            name.className = "jcs-name";
+            name.style.borderLeftColor = state.palette[item.color || 0];
+            name.textContent = item.title;
+            name.title = "Drag to place in workspace / Click to copy";
+            attachDragOutListener(item, name);
+
+            const actions = document.createElement("div");
+            actions.className = "jcs-actions";
+            actions.append(
+                makeButton("EDIT", (e) => { e.stopPropagation(); editItem(item); }, "jcs-btn-edit"),
+                makeButton("✕", (e) => {
+                    e.stopPropagation();
+                    if (!selectedIds.has(String(item.id))) {
+                        selectedIds.clear();
+                        selectedIds.add(String(item.id));
+                    }
+                    if (confirm("Delete this snippet?")) {
+                        state.items = state.items.filter(i => !selectedIds.has(String(i.id)));
+                        selectedIds.clear();
+                        lastSelected = null;
+                        reorderGroup(item.parent, item.child);
+                        saveState();
+                        renderList();
+                    }
+                }, "jcs-btn-del")
+            );
+
+            row.append(drag, name, actions);
+            listEl.appendChild(row);
+        });
+
+        let endDrop = document.createElement("div");
+        endDrop.style.height = "16px";
+        endDrop.style.marginTop = "2px";
+        endDrop.oncontextmenu = (e) => {
+            e.preventDefault();
+            showMenu(e, null);
+        };
+        endDrop.ondragover = (e) => {
+            e.preventDefault();
+            endDrop.style.borderTop = "2px solid #4a7bd4";
+        };
+        endDrop.ondragleave = () => {
+            endDrop.style.borderTop = "none";
+        };
+        endDrop.ondrop = (e) => {
+            e.preventDefault();
+            endDrop.style.borderTop = "none";
+            let group = state.items.filter(i =>
+                i.parent === state.filterParent &&
+                i.child === state.filterChild[state.filterParent]
+            );
+            group.sort((a, b) => (a.order || 0) - (b.order || 0));
+            let moving = group.filter(i => selectedIds.has(String(i.id)));
+            let remain = group.filter(i => !selectedIds.has(String(i.id)));
+            remain.push(...moving);
+            for (let i = 0; i < remain.length; i++) remain[i].order = i;
+
+            selectedIds.clear();
+            lastSelected = null;
+            saveState();
+            renderList();
+        };
+        listEl.appendChild(endDrop);
+
+        if (!filtered.length) {
+            const empty = document.createElement("div");
+            empty.style.padding = "20px";
+            empty.style.textAlign = "center";
+            empty.style.color = "#888";
+            empty.textContent = "No snippets";
+            listEl.appendChild(empty);
+        }
     }
 
     function showMenu(e, targetItem) {
@@ -479,7 +1420,6 @@
 
         document.body.appendChild(menu);
 
-        // ★ 枠外をクリックしたらメニューを自動で閉じる（キャンセル）
         setTimeout(() => {
             const onOutside = (ev) => {
                 if (!menu.contains(ev.target)) {
@@ -600,9 +1540,8 @@
     function autoConnectBlock(createdBlock) {
         if (!createdBlock || !createdBlock.workspace) return;
         const ws = createdBlock.workspace;
-        const SNAP_RADIUS = 75; // 吸い付き判定範囲を広げてはめ込みやすく調整
+        const SNAP_RADIUS = 75;
 
-        // 1. ドラッグしたブロック側の接続口
         const myConns = [];
         if (createdBlock.outputConnection) myConns.push(createdBlock.outputConnection);
         if (createdBlock.previousConnection) myConns.push(createdBlock.previousConnection);
@@ -611,7 +1550,6 @@
 
         if (myConns.length === 0) return;
 
-        // 2. ワークスペース内の接続候補を探す
         let bestDist = SNAP_RADIUS;
         let bestMyConn = null;
         let bestTargetConn = null;
@@ -624,14 +1562,12 @@
             if (other.previousConnection) targetConns.push(other.previousConnection);
             if (other.nextConnection) targetConns.push(other.nextConnection);
 
-            // ブロック内の穴（数値や条件、枠の中など）
             if (other.inputList) {
                 for (const input of other.inputList) {
                     if (input.connection) targetConns.push(input.connection);
                 }
             }
 
-            // 既にデフォルト値（シャドウブロック）が刺さっている穴もターゲットにする
             if (typeof other.isShadow === "function" && other.isShadow()) {
                 if (other.outputConnection && other.outputConnection.targetConnection) {
                     targetConns.push(other.outputConnection.targetConnection);
@@ -642,7 +1578,6 @@
                 for (const targetC of targetConns) {
                     if (!targetC) continue;
 
-                    // 接続可能か判定（型チェック等）
                     let canConnect = false;
                     try {
                         if (typeof targetC.canConnectWithReason_ === "function") {
@@ -659,7 +1594,6 @@
 
                     if (!canConnect) continue;
 
-                    // 2つの接続口の距離を測定
                     const p1 = { x: myC.x, y: myC.y };
                     const p2 = { x: targetC.x, y: targetC.y };
                     if (p1.x === undefined || p2.x === undefined) continue;
@@ -674,10 +1608,8 @@
             }
         }
 
-        // 3. 最寄りの穴・コネクタに合体・挿入
         if (bestMyConn && bestTargetConn) {
             try {
-                // 親の穴（INPUT_VALUE / NEXT_STATEMENT）から接続してシャドウ値を正しく上書き
                 if (bestTargetConn.type === 1 || bestTargetConn.type === 3) {
                     bestTargetConn.connect(bestMyConn);
                 } else {
@@ -693,7 +1625,6 @@
         }
     }
 
-    // ドラッグ＆ドロップ配置：逃げないように弾き飛ばし処理を撤廃し、数値穴へも確実に結合
     function attachDragOutListener(item, nameEl) {
         nameEl.addEventListener("mousedown", (e) => {
             if (e.button !== 0) return;
@@ -712,7 +1643,6 @@
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
                     moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
 
-                // パネル外へ出た瞬間に生成
                 if (!isDragging && isOutside) {
                     isDragging = true;
                     ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
@@ -721,7 +1651,6 @@
                     }
                 }
 
-                // マウス追従
                 if (isDragging && createdBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
@@ -747,11 +1676,9 @@
                         }
                         if (typeof createdBlock.render === "function") createdBlock.render();
 
-                        // ★ 数値の穴やブロック間にパチンとはめ込む
                         autoConnectBlock(createdBlock);
 
                         if (typeof createdBlock.select === "function") createdBlock.select();
-                        // ※ bumpNeighbours（弾き飛ばして逃げる原因）は完全撤廃しました
                     }
 
                     if (isTempExpanded) {
@@ -771,13 +1698,10 @@
         });
     }
 
-    // クリック時の処理：貼り付けモード時もパネルを閉じない
     function handleItemClick(item, nameEl) {
         if (interactionMode === "workspacePaste") {
             pasteSerializedStock(item.body).then(() => {
                 setStatus("Pasted into workspace");
-
-                // ★ 一時展開されていた場合はその場で再び折りたたむ
                 if (isTempExpanded) {
                     isTempExpanded = false;
                     isCollapsed = true;
@@ -800,681 +1724,6 @@
                     setTimeout(() => msg.remove(), 500);
                 }, 500);
             }).catch(e => setStatus(String(e)));
-        }
-    }
-
-    
-
-    // ⚙️ 設定プルダウンメニュー
-    function showSettingsMenu(anchorBtn) {
-        const old = document.getElementById("jcs-settings-menu");
-        if (old) { old.remove(); return; }
-
-        const rect = anchorBtn.getBoundingClientRect();
-        const menu = document.createElement("div");
-        menu.id = "jcs-settings-menu";
-        menu.style.left = Math.min(rect.left, window.innerWidth - 220) + "px";
-        menu.style.top = (rect.bottom + 4) + "px";
-
-        // 1. 全体 EXPORT / IMPORT ボタン
-        const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
-        const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
-
-        // 2. タグ専用 TagsExport / TagsImport ボタン
-        const tagsExpBtn = makeButton("TagsExport", () => {
-            exportCurrentTagData();
-            menu.remove();
-        }, "jcs-menu-btn");
-        tagsExpBtn.style.background = "#3d4b3d";
-        tagsExpBtn.onmouseenter = () => tagsExpBtn.style.background = "#4e6a4e";
-        tagsExpBtn.onmouseleave = () => tagsExpBtn.style.background = "#3d4b3d";
-
-        const tagsImpBtn = makeButton("TagsImport", () => {
-            importCurrentTagData();
-            menu.remove();
-        }, "jcs-menu-btn");
-        tagsImpBtn.style.background = "#3d4b3d";
-        tagsImpBtn.onmouseenter = () => tagsImpBtn.style.background = "#4e6a4e";
-        tagsImpBtn.onmouseleave = () => tagsImpBtn.style.background = "#3d4b3d";
-
-        const sep1 = document.createElement("div");
-        sep1.className = "jcs-menu-sep";
-
-        // 3. PARENT カウンター行 [ - 4 + ]
-        const pRow = document.createElement("div");
-        pRow.className = "jcs-menu-row";
-        const pLabel = document.createElement("span");
-        pLabel.textContent = "PARENT";
-        const pCounter = document.createElement("div");
-        pCounter.className = "jcs-counter";
-        const pVal = document.createElement("span");
-        pVal.textContent = state.parentCount;
-
-        const pMinus = makeButton("-", () => {
-            if (state.parentCount > 1) {
-                state.parentCount--;
-                pVal.textContent = state.parentCount;
-                if (state.filterParent >= state.parentCount) state.filterParent = state.parentCount - 1;
-                saveState();
-                renderPanel();
-            }
-        });
-        const pPlus = makeButton("+", () => {
-            if (state.parentCount < 8) {
-                state.parentCount++;
-                while (state.parents.length < state.parentCount) {
-                    const char = String.fromCharCode(65 + state.parents.length);
-                    state.parents.push(char);
-                    const newChildren = [];
-                    for (let c = 0; c < 8; c++) newChildren.push(char + "-" + c);
-                    state.children.push(newChildren);
-                }
-                pVal.textContent = state.parentCount;
-                saveState();
-                renderPanel();
-            }
-        });
-        pCounter.append(pMinus, pVal, pPlus);
-        pRow.append(pLabel, pCounter);
-
-        // 4. CHILD カウンター行 [ - 6 + ]
-        const cRow = document.createElement("div");
-        cRow.className = "jcs-menu-row";
-        const cLabel = document.createElement("span");
-        cLabel.textContent = "CHILD";
-        const cCounter = document.createElement("div");
-        cCounter.className = "jcs-counter";
-        const cVal = document.createElement("span");
-        cVal.textContent = state.childCount;
-
-        const cMinus = makeButton("-", () => {
-            if (state.childCount > 1) {
-                state.childCount--;
-                cVal.textContent = state.childCount;
-                state.filterChild = state.filterChild.map(v => Math.min(v, state.childCount - 1));
-                saveState();
-                renderPanel();
-            }
-        });
-        const cPlus = makeButton("+", () => {
-            if (state.childCount < 8) {
-                state.childCount++;
-                state.children.forEach((arr, pIdx) => {
-                    const pChar = state.parents[pIdx] || String.fromCharCode(65 + pIdx);
-                    while (arr.length < state.childCount) {
-                        arr.push(pChar + "-" + arr.length);
-                    }
-                });
-                cVal.textContent = state.childCount;
-                saveState();
-                renderPanel();
-            }
-        });
-        cCounter.append(cMinus, cVal, cPlus);
-        cRow.append(cLabel, cCounter);
-
-        const sep2 = document.createElement("div");
-        sep2.className = "jcs-menu-sep";
-
-        // 5. 初期化ボタン
-        const resetBtn = makeButton("RESET ALL DATA", () => {
-            if (confirm("Reset all snippets, categories, and settings to default?\n(This action cannot be undone.)")) {
-                state = cloneDefault();
-                saveState();
-                renderPanel();
-                setStatus("Reset complete");
-                menu.remove();
-            }
-        }, "jcs-menu-btn");
-        resetBtn.style.background = "#5a2020";
-        resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
-        resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
-
-        // メニューの配置（EXPORT / IMPORT / TagsExport / TagsImport / PARENT / CHILD / RESET）
-        menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, pRow, cRow, sep2, resetBtn);
-        document.body.appendChild(menu);
-
-        setTimeout(() => {
-            document.addEventListener("click", (e) => {
-                if (!menu.contains(e.target) && e.target !== anchorBtn) {
-                    menu.remove();
-                }
-            }, { once: true });
-        }, 10);
-    }
-
-    function ensureStateIntegrity() {
-        state.parentCount = Math.max(1, Math.min(8, state.parentCount || 4));
-        state.childCount = Math.max(1, Math.min(8, state.childCount || 6));
-
-        if (!Array.isArray(state.parents)) state.parents = [];
-        while (state.parents.length < 8) {
-            state.parents.push(String.fromCharCode(65 + state.parents.length));
-        }
-
-        if (!Array.isArray(state.children)) state.children = [];
-        while (state.children.length < 8) {
-            state.children.push([]);
-        }
-
-        for (let p = 0; p < 8; p++) {
-            if (!Array.isArray(state.children[p])) state.children[p] = [];
-            const pChar = state.parents[p] || String.fromCharCode(65 + p);
-            while (state.children[p].length < 8) {
-                state.children[p].push(pChar + "-" + (state.children[p].length + 1));
-            }
-        }
-
-        if (!Array.isArray(state.filterChild)) state.filterChild = Array(8).fill(0);
-        while (state.filterChild.length < 8) {
-            state.filterChild.push(0);
-        }
-
-        if (state.filterParent >= state.parentCount || state.filterParent < 0) {
-            state.filterParent = 0;
-        }
-        for (let p = 0; p < 8; p++) {
-            if (state.filterChild[p] >= state.childCount || state.filterChild[p] < 0) {
-                state.filterChild[p] = 0;
-            }
-        }
-    }
-    
-    function renderPanel() {
-        if (!panel) return;
-
-        ensureStateIntegrity();
-
-        const preservedTitle = titleEl ? titleEl.value : null;
-        const preservedBody = bodyEl ? bodyEl.value : null;
-
-        // ★ 再描画前の左ツリーのスクロール位置を一時記憶
-        const prevTreeNav = panel.querySelector(".jcs-tree-nav");
-        const savedTreeScrollTop = prevTreeNav ? prevTreeNav.scrollTop : 0;
-
-        panel.innerHTML = "";
-
-        const container = document.createElement("div");
-        container.className = "jcs-container";
-
-        const head = document.createElement("div");
-        head.className = "jcs-head";
-        const ttl = document.createElement("div");
-        ttl.className = "jcs-title";
-        // 折りたたみ時はタイトルの横にマークを表示して分かりやすく
-        ttl.textContent = isCollapsed ? "🐛JS Stock ▶" : "🐛JS Stock ▼";
-        ttl.title = "Click to minimize/expand (drag to move)";
-
-        const tools = document.createElement("div");
-        tools.className = "jcs-tools";
-
-        // ⚙️ 設定ボタン
-        const gearBtn = makeButton("⚙️", (e) => {
-            e.stopPropagation();
-            showSettingsMenu(gearBtn);
-        }, "jcs-gear");
-        gearBtn.title = "Settings (EXPORT / IMPORT / Change Number of Tabs)";
-
-        // 🔒️ / 🔓️ ピン留めボタン
-        const pinBtn = makeButton(isPinned ? "🔒️" : "🔓️", () => {
-            isPinned = !isPinned;
-            renderPanel();
-        }, "jcs-pin" + (isPinned ? "" : " unlocked"));
-        pinBtn.title = isPinned ? "Locked(does not close after use)" : "Unlocked(closes automatically after use)";
-
-        // ✕ 閉じるボタン
-        const close = makeButton("✕", closePanel, "jcs-close");
-        close.title = "Close";
-
-        // ★ 並び順：⚙️ 🔒️ ✕ （⬒ボタンは撤廃）
-        tools.append(gearBtn, pinBtn, close);
-        head.append(ttl, tools);
-
-        // 最小化（折りたたみ）時はタイトルバーのみ描画して終了
-        if (isCollapsed) {
-            panel.classList.add("collapsed");
-            container.appendChild(head);
-            panel.appendChild(container);
-            return;
-        }
-
-        panel.classList.remove("collapsed");
-
-        // ★ 修正：600pxで上書きせず、記憶された高さ（または変更後の高さ）を適用
-        if (state.windowBounds && state.windowBounds.height) {
-            panel.style.height = state.windowBounds.height + "px";
-        } else if (savedPanelHeight) {
-            panel.style.height = savedPanelHeight;
-        }
-
-        // 親タブ
-        const parentTabs = document.createElement("div");
-        parentTabs.className = "jcs-tabs";
-        state.parents.slice(0, state.parentCount).forEach((name, i) => {
-            const b = makeButton(name, () => {
-                state.filterParent = i;
-                renderPanel();
-            }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
-            b.oncontextmenu = e => {
-                e.preventDefault();
-                showFolderMenu(e, "parent", i);
-            };
-            parentTabs.appendChild(b);
-        });
-
-        // --- 子タブ生成（安全スライス） ---
-        const childTabs = document.createElement("div");
-        childTabs.className = "jcs-tabs jcs-child";
-        (state.children[state.filterParent] || []).slice(0, state.childCount).forEach((name, i) => {
-            const b = makeButton(name, () => {
-                state.filterChild[state.filterParent] = i;
-                renderPanel();
-            }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
-            b.oncontextmenu = e => {
-                e.preventDefault();
-                showFolderMenu(e, "child", i);
-            };
-            childTabs.appendChild(b);
-        });
-
-        const colorTabs = document.createElement("div");
-        colorTabs.className = "jcs-tabs jcs-colors";
-        state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
-            const b = makeButton("", () => { state.currentColor = i; renderPanel(); }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
-            b.style.background = c;
-            b.title = "Color " + (i + 1) + " — right click to change";
-            b.oncontextmenu = e => {
-                e.preventDefault();
-                const picker = document.createElement("input");
-                picker.type = "color"; picker.value = state.palette[i];
-                picker.onchange = () => { state.palette[i] = picker.value; saveState(); renderPanel(); };
-                picker.click();
-            };
-            colorTabs.appendChild(b);
-        });
-
-        const inputSection = document.createElement("div");
-        inputSection.className = "jcs-input-section";
-        const inputRow = document.createElement("div");
-        inputRow.className = "jcs-input-row";
-        const inputLeft = document.createElement("div");
-        inputLeft.className = "jcs-input-left";
-
-        const titleWrap = document.createElement("div");
-        titleWrap.className = "jcs-input-wrapper";
-        titleEl = document.createElement("input");
-        titleEl.placeholder = "🏷️Code name";
-        const clearTitle = makeButton("✕", () => { titleEl.value = ""; titleEl.focus(); }, "jcs-clear");
-        titleWrap.append(titleEl, clearTitle);
-
-        const bodyWrap = document.createElement("div");
-        bodyWrap.className = "jcs-input-wrapper";
-        bodyEl = document.createElement("textarea");
-        bodyEl.placeholder = "📝Code body";
-        bodyEl.addEventListener("paste", (e) => {
-            const clipboardData = (e.clipboardData || window.clipboardData).getData('text');
-            if (titleEl.value.trim() !== "") return;
-            try {
-                const data = JSON.parse(clipboardData);
-                if (data.type) titleEl.value = data.type;
-            } catch (_) { }
-        });
-        const clearBody = makeButton("✕", () => { bodyEl.value = ""; bodyEl.focus(); }, "jcs-clear");
-        bodyWrap.append(bodyEl, clearBody);
-
-        const inputRight = document.createElement("div");
-        inputRight.className = "jcs-input-right";
-        inputRight.append(
-            makeButton(hasEditingId() ? "UPDATE" : "ADD", addItem, "jcs-add"),
-            makeButton("CANCEL", cancelEdit, "jcs-cancel")
-        );
-        inputLeft.append(titleWrap, bodyWrap, inputRight);
-        inputRow.appendChild(inputLeft);
-        inputSection.appendChild(inputRow);
-
-        const toggle = makeButton(inputHidden ? "≡ NEW ENTRY ≡" : "≡ CLOSE ≡", () => {
-            inputHidden = !inputHidden;
-            if (inputHidden) editingIdValue = null;
-            renderPanel();
-            if (!inputHidden && titleEl) titleEl.focus();
-        });
-        toggle.id = "jcs-toggle-input";
-        inputSection.appendChild(toggle);
-
-        if (inputHidden) {
-            inputRow.classList.add("jcs-hidden");
-            colorTabs.classList.add("jcs-hidden");
-        } else if (hasEditingId()) {
-            const item = state.items.find(x => x.id === editingIdValue);
-            if (item) {
-                // ★ 新しくEDITを押した時はアイテムのコードと名称を確実にセット
-                if (lastEditingId !== editingIdValue) {
-                    titleEl.value = item.title;
-                    bodyEl.value = item.body;
-                    lastEditingId = editingIdValue;
-                } else {
-                    // 同じアイテムの編集中にタブや色を変えた時は編集中の文字を維持
-                    titleEl.value = preservedTitle !== null ? preservedTitle : item.title;
-                    bodyEl.value = preservedBody !== null ? preservedBody : item.body;
-                }
-                titleEl.style.borderLeft = "6px solid " + state.palette[item.color || 0];
-                titleEl.style.paddingLeft = "6px";
-            }
-        } else {
-            lastEditingId = null;
-            if (preservedTitle !== null) titleEl.value = preservedTitle;
-            if (preservedBody !== null) bodyEl.value = preservedBody;
-            titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
-            titleEl.style.paddingLeft = "6px";
-        }
-
-        const filter = document.createElement("div");
-        filter.className = "jcs-filter";
-        const fc = document.createElement("div");
-        fc.className = "jcs-tabs jcs-filter-colors";
-
-        const all = makeButton("ALL", () => { state.filterColor = null; renderPanel(); }, "jcs-tab" + (state.filterColor === null ? " active" : ""));
-        fc.appendChild(all);
-        state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
-            const b = makeButton("", () => { state.filterColor = state.filterColor === i ? null : i; renderPanel(); }, "jcs-tab" + (state.filterColor === i ? " active" : ""));
-            b.style.background = c;
-            fc.appendChild(b);
-        });
-        searchEl = document.createElement("input");
-        searchEl.className = "jcs-search";
-        searchEl.placeholder = "🔎search";
-        searchEl.oninput = renderList;
-        filter.append(fc, searchEl);
-
-        // ★ 見出しバー（TAB ▶/▼ 切り替えボタン ＆ CodeLists タイトル）
-        const bodyHead = document.createElement("div");
-        bodyHead.className = "jcs-body-head";
-        const treeToggleBtn = makeButton(showTreeNav ? "TAB ▼" : "TAB ▶", () => {
-            showTreeNav = !showTreeNav;
-            renderPanel();
-        }, "jcs-tree-toggle");
-        treeToggleBtn.title = "左タブツリーの表示/非表示を切り替え";
-        const bodyTitle = document.createElement("span");
-        bodyTitle.className = "jcs-body-title";
-        bodyTitle.textContent = "CodeLists";
-        bodyHead.append(treeToggleBtn, bodyTitle);
-
-        // ★ メインペイン（左ツリー ＋ 右コードリスト）
-        const mainPane = document.createElement("div");
-        mainPane.className = "jcs-main-pane";
-
-        if (showTreeNav) {
-            const treeNav = document.createElement("div");
-            treeNav.className = "jcs-tree-nav";
-
-            for (let p = 0; p < state.parentCount; p++) {
-                const pName = state.parents[p] || ("P" + p);
-
-                // 親の名称が "-" の場合、親も配下の子も左ツリーでは丸ごと非表示
-                if (String(pName).trim() === "-") {
-                    continue;
-                }
-
-                // 親項目 [ 親A ]
-                const pEl = document.createElement("div");
-                pEl.className = "jcs-tree-parent" + (state.filterParent === p ? " active" : "");
-                pEl.textContent = pName;
-                pEl.onclick = () => {
-                    state.filterParent = p;
-                    renderPanel();
-                };
-                pEl.oncontextmenu = (e) => {
-                    e.preventDefault();
-                    showFolderMenu(e, "parent", p);
-                };
-                treeNav.appendChild(pEl);
-
-                // 子項目 [ 子A-1 ] 〜 [ 子A-8 ]
-                const cList = state.children[p] || [];
-                for (let c = 0; c < state.childCount; c++) {
-                    const cName = cList[c] || (state.parents[p] + "-" + (c + 1));
-
-                    // 子の名称が "-" の場合、その子項目のみ左ツリーで非表示
-                    if (String(cName).trim() === "-") {
-                        continue;
-                    }
-
-                    const cEl = document.createElement("div");
-                    const isActive = (state.filterParent === p && state.filterChild[p] === c);
-                    cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
-                    cEl.textContent = cName;
-                    cEl.onclick = () => {
-                        state.filterParent = p;
-                        state.filterChild[p] = c;
-                        renderPanel();
-                    };
-                    cEl.oncontextmenu = (e) => {
-                        e.preventDefault();
-                        showFolderMenu(e, "child", c);
-                    };
-                    treeNav.appendChild(cEl);
-                }
-            }
-
-            mainPane.appendChild(treeNav);
-
-            // ★ 記憶していたスクロール位置を瞬時に復元して固定（一番上への巻き戻りを完全防止）
-            treeNav.scrollTop = savedTreeScrollTop;
-            requestAnimationFrame(() => {
-                if (treeNav) treeNav.scrollTop = savedTreeScrollTop;
-            });
-        }
-
-        // 右側コードリスト
-        listEl = document.createElement("div");
-        listEl.className = "jcs-list";
-        mainPane.appendChild(listEl);
-
-        const foot = document.createElement("div");
-        foot.className = "jcs-foot";
-        statusEl = document.createElement("span");
-        statusEl.className = "jcs-status";
-        statusEl.textContent = "Ready";
-        foot.appendChild(statusEl);
-
-        container.append(head, parentTabs, childTabs, colorTabs, inputSection, filter, bodyHead, mainPane, foot);
-        panel.appendChild(container);
-        renderList();
-    }
-
-
-    function hasEditingId() { return !!editingIdValue; }
-
-    function renderList() {
-        if (!listEl) return;
-        listEl.innerHTML = "";
-        const q = searchEl ? searchEl.value.toLowerCase() : "";
-        let filtered = state.items.filter(item =>
-            item.parent === state.filterParent &&
-            item.child === state.filterChild[state.filterParent] &&
-            (state.filterColor === null || (item.color || 0) === state.filterColor) &&
-            String(item.title).toLowerCase().includes(q)
-        );
-        filtered.sort((a, b) => (a.order || 0) - (b.order || 0));
-
-        filtered.forEach(item => {
-            const id = String(item.id);
-            const row = document.createElement("div");
-            row.className = "jcs-item" + (selectedIds.has(id) ? " selected" : "");
-            row.dataset.id = id;
-
-            if (cutIds.has(id)) {
-                row.style.opacity = "0.4";
-                row.style.border = "1px dashed #888";
-            }
-
-            // Drag handle (リスト内順序並び替え用)
-            const drag = document.createElement("button");
-            drag.className = "jcs-drag" + (selectedIds.has(id) ? " active" : "");
-            drag.textContent = "≡";
-            drag.draggable = true;
-
-            drag.oncontextmenu = (e) => {
-                e.preventDefault();
-                if (!selectedIds.has(id)) {
-                    selectedIds.clear();
-                    selectedIds.add(id);
-                    lastSelected = id;
-                    renderList();
-                }
-                showMenu(e, item);
-            };
-
-            drag.onclick = (e) => {
-                e.stopPropagation();
-                let group = filtered.map(i => String(i.id));
-                if (e.shiftKey && lastSelected) {
-                    let a = group.indexOf(lastSelected);
-                    let b = group.indexOf(id);
-                    selectedIds.clear();
-                    let start = Math.min(a, b), end = Math.max(a, b);
-                    for (let i = start; i <= end; i++) selectedIds.add(group[i]);
-                } else if (e.ctrlKey) {
-                    if (selectedIds.has(id)) selectedIds.delete(id);
-                    else { selectedIds.add(id); lastSelected = id; }
-                } else {
-                    if (selectedIds.has(id)) {
-                        selectedIds.delete(id);
-                        lastSelected = null;
-                    } else {
-                        selectedIds.clear();
-                        selectedIds.add(id);
-                        lastSelected = id;
-                    }
-                }
-                renderList();
-            };
-
-            drag.ondragstart = () => {
-                if (!selectedIds.has(id)) {
-                    selectedIds.clear();
-                    selectedIds.add(id);
-                }
-                document.querySelectorAll(".jcs-item").forEach(el => {
-                    if (selectedIds.has(el.dataset.id)) el.classList.add("dragging");
-                });
-            };
-
-            drag.ondragend = () => {
-                document.querySelectorAll(".jcs-item").forEach(el => {
-                    el.classList.remove("dragging", "dragTarget");
-                });
-            };
-
-            row.ondragover = (e) => {
-                e.preventDefault();
-                row.classList.add("dragTarget");
-            };
-            row.ondragleave = () => {
-                row.classList.remove("dragTarget");
-            };
-            row.ondrop = (e) => {
-                e.preventDefault();
-                document.querySelectorAll(".jcs-item").forEach(el => el.classList.remove("dragTarget"));
-                let group = state.items.filter(i =>
-                    i.parent === state.filterParent &&
-                    i.child === state.filterChild[state.filterParent]
-                );
-                group.sort((a, b) => (a.order || 0) - (b.order || 0));
-
-                let moving = group.filter(i => selectedIds.has(String(i.id)));
-                if (moving.length === 0 || selectedIds.has(id)) return;
-
-                let targetIndex = group.findIndex(i => String(i.id) === id);
-                let targetItem = group[targetIndex];
-                let removedBefore = moving.filter(i => (i.order || 0) < (targetItem.order || 0)).length;
-                targetIndex -= removedBefore;
-
-                let remain = group.filter(i => !selectedIds.has(String(i.id)));
-                remain.splice(targetIndex, 0, ...moving);
-                for (let i = 0; i < remain.length; i++) remain[i].order = i;
-
-                selectedIds.clear();
-                lastSelected = null;
-                saveState();
-                renderList();
-            };
-
-            // コード名要素（ドラッグアウトでワークスペース配置、クリックでコピー）
-            const name = document.createElement("div");
-            name.className = "jcs-name";
-            name.style.borderLeftColor = state.palette[item.color || 0];
-            name.textContent = item.title;
-            name.title = "Drag and drop onto the workspace / Click to copy";
-            attachDragOutListener(item, name);
-
-            const actions = document.createElement("div");
-            actions.className = "jcs-actions";
-            actions.append(
-                makeButton("EDIT", (e) => { e.stopPropagation(); editItem(item); }, "jcs-btn-edit"),
-                makeButton("✕", (e) => {
-                    e.stopPropagation();
-                    if (!selectedIds.has(String(item.id))) {
-                        selectedIds.clear();
-                        selectedIds.add(String(item.id));
-                    }
-                    showConfirm(e.clientX, e.clientY, "delete it?", () => {
-                        state.items = state.items.filter(i => !selectedIds.has(String(i.id)));
-                        selectedIds.clear();
-                        lastSelected = null;
-                        reorderGroup(item.parent, item.child);
-                        saveState();
-                        renderList();
-                    });
-                }, "jcs-btn-del")
-            );
-
-            row.append(drag, name, actions);
-            listEl.appendChild(row);
-        });
-
-        // リスト最下部のドロップ・貼り付けエリア
-        let endDrop = document.createElement("div");
-        endDrop.style.height = "16px";
-        endDrop.style.marginTop = "2px";
-        endDrop.oncontextmenu = (e) => {
-            e.preventDefault();
-            showMenu(e, null);
-        };
-        endDrop.ondragover = (e) => {
-            e.preventDefault();
-            endDrop.style.borderTop = "2px solid #4a7bd4";
-        };
-        endDrop.ondragleave = () => {
-            endDrop.style.borderTop = "none";
-        };
-        endDrop.ondrop = (e) => {
-            e.preventDefault();
-            endDrop.style.borderTop = "none";
-            let group = state.items.filter(i =>
-                i.parent === state.filterParent &&
-                i.child === state.filterChild[state.filterParent]
-            );
-            group.sort((a, b) => (a.order || 0) - (b.order || 0));
-            let moving = group.filter(i => selectedIds.has(String(i.id)));
-            let remain = group.filter(i => !selectedIds.has(String(i.id)));
-            remain.push(...moving);
-            for (let i = 0; i < remain.length; i++) remain[i].order = i;
-
-            selectedIds.clear();
-            lastSelected = null;
-            saveState();
-            renderList();
-        };
-        listEl.appendChild(endDrop);
-
-        if (!filtered.length) {
-            const empty = document.createElement("div");
-            empty.style.padding = "20px";
-            empty.style.textAlign = "center";
-            empty.style.color = "#888";
-            empty.textContent = "No snippets";
-            listEl.appendChild(empty);
         }
     }
 
@@ -1546,161 +1795,6 @@
         }
     }
 
-    // カテゴリタブの右クリックメニュー（名称変更 ＆ TAB丸ごとCopy/Paste上書き）
-    function showFolderMenu(e, type, index) {
-        const old = document.getElementById("uiPrompt");
-        if (old) old.remove();
-
-        const isParent = (type === "parent");
-        const currentName = isParent ? state.parents[index] : state.children[state.filterParent][index];
-        const labelTitle = isParent ? "Folder Name (Parent)" : "SubFolder Name (Child)";
-
-        const box = document.createElement("div");
-        box.id = "uiPrompt";
-        box.style.position = "fixed";
-        box.style.left = Math.min(e.clientX, window.innerWidth - 220) + "px";
-        box.style.top = Math.min(e.clientY, window.innerHeight - 200) + "px";
-        box.style.background = "#1e1e1e";
-        box.style.border = "1px solid #444";
-        box.style.borderRadius = "6px";
-        box.style.padding = "10px";
-        box.style.zIndex = 2147483647;
-        box.style.color = "#ddd";
-        box.style.fontSize = "12px";
-        box.style.boxShadow = "0 6px 18px rgba(0,0,0,0.8)";
-        box.style.Width = "100px";
-
-        const t = document.createElement("div");
-        t.textContent = labelTitle;
-        t.style.marginBottom = "6px";
-        t.style.fontWeight = "bold";
-
-        const input = document.createElement("input");
-        input.value = currentName;
-        input.style.width = "100%";
-        input.style.boxSizing = "border-box";
-        input.style.background = "#2a2a2a";
-        input.style.border = "1px solid #555";
-        input.style.color = "#ddd";
-        input.style.padding = "4px";
-        input.style.borderRadius = "3px";
-        input.style.marginBottom = "8px";
-
-        const rowBtn = document.createElement("div");
-        rowBtn.style.display = "flex";
-        rowBtn.style.gap = "6px";
-
-        const ok = makeButton("OK", () => {
-            const val = input.value.trim();
-            if (val) {
-                if (isParent) state.parents[index] = val;
-                else state.children[state.filterParent][index] = val;
-                saveState();
-                renderPanel();
-            }
-            box.remove();
-        });
-        ok.style.flex = "1";
-        ok.style.padding = "4px";
-
-        const cancel = makeButton("Cancel", () => box.remove());
-        cancel.style.flex = "1";
-        cancel.style.padding = "4px";
-        rowBtn.append(ok, cancel);
-
-        const sep = document.createElement("div");
-        sep.style.height = "1px";
-        sep.style.background = "#444";
-        sep.style.margin = "10px 0 8px";
-
-        const copyBtn = makeButton("Folder: Copy", () => {
-            if (isParent) {
-                folderClipboard = {
-                    type: "parent",
-                    name: state.parents[index],
-                    childrenNames: (state.children[index] || []).slice(),
-                    items: state.items.filter(i => i.parent === index).map(i => ({ ...i }))
-                };
-                setStatus(`Copied parent folder [${state.parents[index]}]`);
-            } else {
-                folderClipboard = {
-                    type: "child",
-                    name: state.children[state.filterParent][index],
-                    items: state.items.filter(i => i.parent === state.filterParent && i.child === index).map(i => ({ ...i }))
-                };
-                setStatus(`Copied subfolder [${state.children[state.filterParent][index]}]`);
-            }
-            box.remove();
-        });
-        copyBtn.style.width = "100%";
-        copyBtn.style.padding = "5px 6px";
-        copyBtn.style.marginBottom = "6px";
-        copyBtn.style.background = "#2a5298";
-        copyBtn.style.fontSize = "11px";
-        copyBtn.onmouseenter = () => copyBtn.style.background = "#3b6fc9";
-        copyBtn.onmouseleave = () => copyBtn.style.background = "#2a5298";
-
-        const canPaste = folderClipboard && (folderClipboard.type === type);
-        const pasteBtn = makeButton("Folder: Paste ", () => {
-            if (!folderClipboard) return;
-            if (folderClipboard.type !== type) {
-                alert(`Type mismatch: A ${folderClipboard.type === "parent" ? "parent" : "sub"} folder is currently copied.`);
-                return;
-            }
-
-            if (!confirm(`Overwrite TAB [${currentName}] with [${folderClipboard.name}]?\nAll existing snippets in this TAB will be replaced.`)) {
-                return;
-            }
-
-            if (isParent) {
-                state.parents[index] = folderClipboard.name;
-                if (Array.isArray(folderClipboard.childrenNames)) {
-                    state.children[index] = folderClipboard.childrenNames.slice();
-                }
-                state.items = state.items.filter(i => i.parent !== index);
-                folderClipboard.items.forEach(i => {
-                    state.items.push({ ...i, id: uid(), parent: index });
-                });
-                setStatus(`Pasted parent folder [${folderClipboard.name}]`);
-            } else {
-                const pIdx = state.filterParent;
-                state.children[pIdx][index] = folderClipboard.name;
-                state.items = state.items.filter(i => !(i.parent === pIdx && i.child === index));
-                folderClipboard.items.forEach(i => {
-                    state.items.push({ ...i, id: uid(), parent: pIdx, child: index });
-                });
-                setStatus(`Pasted subfolder [${folderClipboard.name}]`);
-            }
-
-            saveState();
-            renderPanel();
-            box.remove();
-        });
-        pasteBtn.style.width = "100%";
-        pasteBtn.style.padding = "5px 6px";
-        pasteBtn.style.background = canPaste ? "#3d4b3d" : "#333";
-        pasteBtn.style.color = canPaste ? "#fff" : "#777";
-        pasteBtn.style.fontSize = "11px";
-        if (canPaste) {
-            pasteBtn.onmouseenter = () => pasteBtn.style.background = "#4e6a4e";
-            pasteBtn.onmouseleave = () => pasteBtn.style.background = "#3d4b3d";
-        }
-
-        box.append(t, input, rowBtn, sep, copyBtn, pasteBtn);
-        document.body.appendChild(box);
-        input.focus();
-        input.select();
-
-        setTimeout(() => {
-            const onOutside = (ev) => {
-                if (!box.contains(ev.target)) {
-                    box.remove();
-                    document.removeEventListener("mousedown", onOutside);
-                }
-            };
-            document.addEventListener("mousedown", onOutside);
-        }, 10);
-    }
     function ensureVariableExists(ws, name, type) {
         try {
             const varMap = ws.getVariableMap();
@@ -1878,9 +1972,8 @@
         editingIdValue = null;
         inputHidden = true;
         state.filterParent = 0;
-        state.filterChild = Array(PARENT_COUNT).fill(0);
+        state.filterChild = Array(8).fill(0);
 
-        // ★ 折りたたみ中なら一時展開
         if (isCollapsed) {
             isTempExpanded = true;
             isCollapsed = false;
@@ -1901,8 +1994,6 @@
             editingIdValue = null;
             inputHidden = false;
 
-            // ★ 親0・子0へのリセットを削除（現在選択中のカテゴリをそのまま維持）
-
             if (isCollapsed) {
                 isTempExpanded = true;
                 isCollapsed = false;
@@ -1918,7 +2009,6 @@
             BF2042Portal.Shared.logError("JS Code Stock block entry", String(e));
         }
     }
-
 
     function addItem() {
         const title = titleEl && titleEl.value.trim();
@@ -1946,17 +2036,14 @@
             });
         }
 
-        // 編集モードを終了して保存
         editingIdValue = null;
         lastEditingId = null;
         saveState();
 
-        // ★ コード・名称欄をクリアし、入力パネルを閉じる
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
         inputHidden = true;
 
-        // ブロックから直接登録した場合の終了処理
         if (interactionMode === "blockEntry") {
             interactionMode = "normal";
             pendingBlockData = null;
@@ -1990,7 +2077,7 @@
 
     function editItem(item) {
         editingIdValue = item.id;
-        lastEditingId = null; // ★ リセットして必ずアイテムのデータを読み込ませる
+        lastEditingId = null;
         state.filterParent = item.parent;
         state.filterChild[item.parent] = item.child;
         state.currentColor = item.color || 0;
@@ -2004,16 +2091,12 @@
         lastEditingId = null;
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
-
-        // ★ 入力欄を閉じた状態（≡ NEW ENTRY ≡）にする
         inputHidden = true;
 
-        // ブロックから直接登録（新規入力モード）をキャンセルした場合
         if (interactionMode === "blockEntry") {
             interactionMode = "normal";
             pendingBlockData = null;
 
-            // ⬒から一時展開されていた場合はその場で再折りたたみ
             if (isTempExpanded) {
                 isTempExpanded = false;
                 isCollapsed = true;
@@ -2021,7 +2104,6 @@
                 return;
             }
 
-            // 🔓️（アンロック）ならパネルごと閉じる、🔒️（ロック）ならパネルは開いたまま入力欄だけ閉じる
             if (!isPinned) {
                 closePanel();
                 return;
@@ -2038,262 +2120,6 @@
         state.items.filter(x => x.parent === parent && x.child === child)
             .sort((a, b) => (a.order || 0) - (b.order || 0))
             .forEach((x, i) => x.order = i);
-    }
-
-    function exportData() {
-        const data = {
-            items: state.items,
-            config: {
-                parentCount: state.parentCount || 4,
-                childCount: state.childCount || 6,
-                parents: state.parents,   // ★ カスタム親カテゴリ名
-                children: state.children, // ★ カスタム子カテゴリ名
-                palette: state.palette
-            }
-        };
-        const text = JSON.stringify(data, null, 2);
-        copyText(text).then(() => setStatus("Export JSON copied to clipboard"));
-        const blob = new Blob([text], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "CodeStock_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
-        document.body.appendChild(a); a.click(); a.remove();
-        URL.revokeObjectURL(url);
-    }
-
-    function importData() {
-        const input = document.createElement("input");
-        input.type = "file"; input.accept = ".json,application/json";
-        input.onchange = () => {
-            const file = input.files && input.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-                try {
-                    const data = JSON.parse(reader.result);
-                    if (!confirm("Overwrite current JS Code Stock data?")) return;
-                    if (Array.isArray(data.items)) state.items = data.items;
-                    if (data.config) {
-                        // ★ カテゴリ数設定の復元
-                        if (data.config.parentCount) state.parentCount = Math.max(1, Math.min(8, Number(data.config.parentCount) || 4));
-                        if (data.config.childCount) state.childCount = Math.max(1, Math.min(8, Number(data.config.childCount) || 6));
-
-                        // ★ 変更した親カテゴリ名・子カテゴリ名の完全復元
-                        if (Array.isArray(data.config.parents)) {
-                            state.parents = data.config.parents.slice();
-                        }
-                        if (Array.isArray(data.config.children)) {
-                            state.children = data.config.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
-                        }
-                        if (Array.isArray(data.config.palette) && data.config.palette.length === COLOR_COUNT) {
-                            state.palette = data.config.palette.slice();
-                        }
-                    }
-                    saveState();
-                    renderPanel();
-                    setStatus("Import complete");
-                } catch (e) {
-                    setStatus("Loading failed");
-                    BF2042Portal.Shared.logError("JS Code Stock import", String(e));
-                }
-            };
-            reader.readAsText(file);
-        };
-        input.click();
-    }
-
-    // 現在選択しているタグ（親・子）のコードリストのみをエクスポート
-    function exportCurrentTagData() {
-        const pIdx = state.filterParent;
-        const cIdx = state.filterChild[pIdx];
-        const pName = state.parents[pIdx] || ("P" + pIdx);
-        const cName = (state.children[pIdx] && state.children[pIdx][cIdx]) || ("C" + cIdx);
-
-        const targetItems = state.items
-            .filter(i => i.parent === pIdx && i.child === cIdx)
-            .sort((a, b) => (a.order || 0) - (b.order || 0));
-
-        if (targetItems.length === 0) {
-            alert("No snippets found in the current tag.");
-            return;
-        }
-
-        const data = {
-            type: "CodeStock_TagExport",
-            parentName: pName,
-            childName: cName,
-            items: targetItems.map(i => ({
-                title: i.title,
-                body: i.body,
-                color: i.color || 0
-            }))
-        };
-
-        const text = JSON.stringify(data, null, 2);
-        copyText(text).then(() => setStatus("Tag JSON copied to clipboard"));
-        const blob = new Blob([text], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `Tag_${pName}_${cName}_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-        document.body.appendChild(a); a.click(); a.remove();
-        URL.revokeObjectURL(url);
-    }
-
-    // 現在選択しているタグへ、純粋にコードリストのみを末尾追加
-    function importCurrentTagData() {
-        const pIdx = state.filterParent;
-        const cIdx = state.filterChild[pIdx];
-        const pName = state.parents[pIdx] || ("P" + pIdx);
-        const cName = (state.children[pIdx] && state.children[pIdx][cIdx]) || ("C" + cIdx);
-
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = ".json,application/json";
-        input.onchange = () => {
-            const file = input.files && input.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-                try {
-                    const raw = JSON.parse(reader.result);
-                    const importList = Array.isArray(raw) ? raw : (raw.items || []);
-
-                    if (!Array.isArray(importList) || importList.length === 0) {
-                        alert("No valid snippets found in the file.");
-                        return;
-                    }
-
-                    if (!confirm(`Add ${importList.length} snippet(s) into current tag [${pName} > ${cName}]?`)) {
-                        return;
-                    }
-
-                    const currentItems = state.items.filter(i => i.parent === pIdx && i.child === cIdx);
-                    let nextOrderNum = currentItems.length;
-                    let addedCount = 0;
-
-                    importList.forEach(item => {
-                        if (item && item.title) {
-                            state.items.push({
-                                id: uid(),
-                                title: item.title,
-                                body: item.body || "",
-                                parent: pIdx,
-                                child: cIdx,
-                                order: nextOrderNum++,
-                                color: (item.color !== undefined) ? item.color : state.currentColor
-                            });
-                            addedCount++;
-                        }
-                    });
-
-                    saveState();
-                    renderPanel();
-                    alert(`Import complete!\nAdded ${addedCount} snippet(s) into [${pName} > ${cName}].`);
-                    setStatus(`TagImport: ${addedCount} items added`);
-                } catch (e) {
-                    alert("Failed to read the file.");
-                }
-            };
-            reader.readAsText(file);
-        };
-        input.click();
-    }
-
-
-    // ウィンドウの位置とサイズを記憶
-    function saveWindowBounds() {
-        if (!panel || isCollapsed) return;
-        const rect = panel.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-            const h = Math.round(rect.height);
-            state.windowBounds = {
-                left: Math.round(rect.left),
-                top: Math.round(rect.top),
-                width: Math.round(rect.width),
-                height: h
-            };
-            // ★ ユーザーが変更した高さを記憶値として更新
-            savedPanelHeight = h + "px";
-            saveState();
-        }
-    }
-
-    // 記憶した位置とサイズを適用
-    function applySavedWindowBounds() {
-        if (!panel || !state.windowBounds) return false;
-        const b = state.windowBounds;
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-
-        // ★ サイズ（幅・高さ）はお好みの大きさを常に維持
-        if (b.width) panel.style.width = Math.max(320, Math.min(b.width, vw - 16)) + "px";
-        if (b.height) panel.style.height = Math.max(200, Math.min(b.height, vh - 16)) + "px";
-
-        // ★ 位置（座標）は「🔒️（ロック中）」の時だけ記憶位置に固定する
-        if (isPinned && b.left !== null && b.top !== null) {
-            const maxL = Math.max(8, vw - (b.width || 400) - 8);
-            const maxT = Math.max(8, vh - (b.height || 600) - 8);
-            panel.style.left = Math.max(8, Math.min(b.left, maxL)) + "px";
-            panel.style.top = Math.max(8, Math.min(b.top, maxT)) + "px";
-            panel.style.right = "auto";
-            return true; // 位置固定完了
-        }
-
-        return false; // ロック解除（🔓️）中なのでカーソル位置へ移動させる
-    }
-
-    function openPanel() {
-        if (panel) {
-            panel.style.display = "flex";
-            renderPanel();
-            enablePanelDragging();
-
-            // 🔒️なら記憶位置に固定、🔓️ならマウスカーソルのすぐ近くに表示
-            const isPositionFixed = applySavedWindowBounds();
-            if (!isPositionFixed) {
-                requestAnimationFrame(positionPanelAtContext);
-            }
-            return;
-        }
-
-        injectStyle();
-        panel = document.createElement("div");
-        panel.id = "js-code-stock-panel";
-        document.body.appendChild(panel);
-        renderPanel();
-        enablePanelDragging();
-
-        // 🔒️なら記憶位置に固定、🔓️ならマウスカーソルのすぐ近くに表示
-        const isPositionFixed = applySavedWindowBounds();
-        if (!isPositionFixed) {
-            requestAnimationFrame(positionPanelAtContext);
-        }
-    }
-
-    function positionPanelAtContext() {
-        if (!panel) return;
-        const e = lastContextMenuEvent || lastMouseEvent;
-        if (!e) return;
-
-        const gap = 12;
-        const rect = panel.getBoundingClientRect();
-        const w = rect.width || 400;
-        const h = rect.height || 600;
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-
-        let left = e.clientX + gap;
-        if (left + w > vw - 8) left = e.clientX - w - gap;
-        left = Math.max(8, Math.min(left, vw - w - 8));
-
-        let top = e.clientY - 20;
-        top = Math.max(8, Math.min(top, vh - h - 8));
-
-        panel.style.left = left + "px";
-        panel.style.top = top + "px";
-        panel.style.right = "auto";
     }
 
     function enablePanelDragging() {
@@ -2317,7 +2143,6 @@
 
             const move = ev => {
                 const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
-                // 5px以上動いた時だけ「ドラッグ移動」と判定
                 if (dist > 5) {
                     hasMoved = true;
                     const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
@@ -2333,10 +2158,8 @@
                 document.removeEventListener("mouseup", up);
 
                 if (hasMoved) {
-                    // ★ 移動させた場合：位置を保存（折りたたみは行わない）
                     saveWindowBounds();
                 } else {
-                    // ★ 移動させずにクリックした場合：最小化 / 展開をトグル
                     isCollapsed = !isCollapsed;
                     if (isCollapsed && panel.style.height && panel.style.height !== "auto") {
                         savedPanelHeight = panel.style.height;
@@ -2356,9 +2179,8 @@
             renderPanel();
             enablePanelDragging();
 
-            // 記憶された位置・サイズを復元（初回など未保存の場合のみカーソル位置へ）
-            const hasBounds = applySavedWindowBounds();
-            if (!hasBounds && !isPinned) {
+            const isPositionFixed = applySavedWindowBounds();
+            if (!isPositionFixed) {
                 requestAnimationFrame(positionPanelAtContext);
             }
             return;
@@ -2371,8 +2193,8 @@
         renderPanel();
         enablePanelDragging();
 
-        const hasBounds = applySavedWindowBounds();
-        if (!hasBounds) {
+        const isPositionFixed = applySavedWindowBounds();
+        if (!isPositionFixed) {
             requestAnimationFrame(positionPanelAtContext);
         }
     }
@@ -2421,7 +2243,7 @@
     }
 
     plugin.initializeWorkspace = async function () {
-        await loadState(); // IndexedDB から読み込み
+        await loadState();
         try { registerMenus(); } catch (e) { BF2042Portal.Shared.logError("JS Code Stock menu registration", String(e)); }
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
