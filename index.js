@@ -275,14 +275,19 @@
 .jcs-counter button{width:22px;height:22px;padding:0;text-align:center;font-size:13px;line-height:20px;background:#333;color:#fff;border:1px solid #555;border-radius:3px;cursor:pointer}
 .jcs-counter button:hover{background:#555}
 .jcs-counter span{min-width:18px;text-align:center;font-weight:bold;color:#fff}
+/* 左ツリーナビゲーション枠（ダークモードスクロールバー付き） */
 #js-code-stock-panel .jcs-tree-nav{width:145px;min-width:125px;max-width:180px;background:#181818;border:1px solid #333;border-radius:4px;overflow-y:auto;overflow-x:hidden;padding:4px;display:flex;flex-direction:column;gap:2px}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar{width:8px}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-track{background:#161616}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb{background:#444;border-radius:4px}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb:hover{background:#666}
+
+/* 親項目：潰れ防止(flex-shrink:0)、フォント拡大、パディング調整 */
 #js-code-stock-panel .jcs-tree-parent{flex-shrink:0;min-height:26px;font-size:13.5px;font-weight:bold;color:#ddd;background:#242424;padding:5px 8px;border-radius:3px;cursor:pointer;margin-top:4px;border-left:3px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center}
 #js-code-stock-panel .jcs-tree-parent:hover{background:#2e2e2e;color:#fff}
 #js-code-stock-panel .jcs-tree-parent.active{border-left-color:#4da3ff;background:#252d3a;color:#fff}
+
+/* 子項目：潰れ防止(flex-shrink:0)、フォント拡大、パディング調整 */
 #js-code-stock-panel .jcs-tree-child{flex-shrink:0;min-height:22px;font-size:12.5px;color:#aaa;padding:4px 8px 4px 14px;border-radius:2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:2px solid transparent;display:flex;align-items:center}
 #js-code-stock-panel .jcs-tree-child:hover{background:#2a2a2a;color:#ddd}
 #js-code-stock-panel .jcs-tree-child.active{color:#fff;background:#35363a;font-weight:bold;border-left-color:#2ecc71}
