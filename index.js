@@ -19,7 +19,7 @@
     ];
     const DEFAULT_PALETTE = [
         "#e74c3c", "#f39c12", "#f1c40f", "#2ecc71",
-        "#3498db", "#9b59b6", "#666666", "#ffffff"
+        "#5334dbff", "#9b59b6", "#666666", "#ffffff"
     ];
 
     let state = {
