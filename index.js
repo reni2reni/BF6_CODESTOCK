@@ -65,6 +65,7 @@
     let titleEl = null;
     let bodyEl = null;
     let statusEl = null;
+    let searchScope = "ALL"; // ★ 検索範囲（"TAB" = 選択タブ内 / "ALL" = 全データ検索）
 
     let interactionMode = "normal";
     let pendingBlockData = null;
@@ -420,6 +421,10 @@
 .jcs-counter button{width:22px;height:22px;padding:0;text-align:center;font-size:13px;line-height:20px;background:#333;color:#fff;border:1px solid #555;border-radius:3px;cursor:pointer}
 .jcs-counter button:hover{background:#555}
 .jcs-counter span{min-width:18px;text-align:center;font-weight:bold;color:#fff}
+#js-code-stock-panel .jcs-scope-btn{width:46px;min-width:46px;height:30px;font-size:11px;font-weight:bold;background:#2a2a2a;color:#aaa;border:1px solid #444;border-radius:2px;cursor:pointer}
+#js-code-stock-panel .jcs-scope-btn:hover{background:#3a3a3a;color:#fff}
+#js-code-stock-panel .jcs-scope-btn.active{background:#2259a8;color:#fff;border-color:#4da3ff}
+#js-code-stock-panel .jcs-tag-badge{font-size:10px;color:#777;background:#1a1a1a;padding:1px 4px;border-radius:2px;margin-left:6px;border:1px solid #333}
 `;
         document.head.appendChild(style);
     }
@@ -1136,13 +1141,16 @@
             panel.style.height = savedPanelHeight;
         }
 
+        // 親タブ
         const parentTabs = document.createElement("div");
         parentTabs.className = "jcs-tabs";
         state.parents.slice(0, state.parentCount).forEach((name, i) => {
+            const isActive = (searchScope === "TAB" && state.filterParent === i);
             const b = makeButton(name, () => {
+                searchScope = "TAB"; // タブ選択時はTABモードへ自動復帰
                 state.filterParent = i;
                 renderPanel();
-            }, "jcs-tab" + (state.filterParent === i ? " active" : ""));
+            }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
                 showFolderMenu(e, "parent", i);
@@ -1150,13 +1158,16 @@
             parentTabs.appendChild(b);
         });
 
+        // 子タブ
         const childTabs = document.createElement("div");
         childTabs.className = "jcs-tabs jcs-child";
         (state.children[state.filterParent] || []).slice(0, state.childCount).forEach((name, i) => {
+            const isActive = (searchScope === "TAB" && state.filterChild[state.filterParent] === i);
             const b = makeButton(name, () => {
+                searchScope = "TAB"; // タブ選択時はTABモードへ自動復帰
                 state.filterChild[state.filterParent] = i;
                 renderPanel();
-            }, "jcs-tab" + (state.filterChild[state.filterParent] === i ? " active" : ""));
+            }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
                 showFolderMenu(e, "child", i);
@@ -1311,11 +1322,30 @@
             fc.appendChild(b);
         });
 
+        // ▼▼▼▼▼ ここから差し替えコード ▼▼▼▼▼
+        const searchRow = document.createElement("div");
+        searchRow.style.display = "flex";
+        searchRow.style.gap = "4px";
+        searchRow.style.marginTop = "3px";
+        searchRow.style.alignItems = "center";
+
+        // TAB / ALL 切り替えボタン
+        const scopeBtn = makeButton(searchScope, () => {
+            searchScope = (searchScope === "TAB") ? "ALL" : "TAB";
+            renderPanel();
+        }, "jcs-scope-btn" + (searchScope === "ALL" ? " active" : ""));
+        scopeBtn.title = (searchScope === "TAB") ? "Search in current tab" : "Search in ALL data";
+
         searchEl = document.createElement("input");
         searchEl.className = "jcs-search";
-        searchEl.placeholder = "🔎search";
+        searchEl.style.flex = "1";
+        searchEl.style.marginTop = "0";
+        searchEl.placeholder = (searchScope === "ALL") ? "🔎search in ALL data..." : "🔎search in current tab...";
         searchEl.oninput = renderList;
-        filter.append(fc, searchEl);
+
+        searchRow.append(scopeBtn, searchEl);
+        filter.append(fc, searchRow);
+        // ▲▲▲▲▲ ここまで差し替えコード ▲▲▲▲▲
 
         const bodyHead = document.createElement("div");
         bodyHead.className = "jcs-body-head";
@@ -1369,17 +1399,18 @@
                     if (String(cName).trim() === "-") continue;
 
                     const cEl = document.createElement("div");
-                    const isActive = (state.filterParent === p && state.filterChild[p] === c);
+                    // ★ ALL検索時は選択ハイライトを解除
+                    const isActive = (searchScope === "TAB" && state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
                     cEl.textContent = cName;
 
-                    // ★ 子の文字色が設定されていれば反映
                     const cColorIdx = (state.childColors && state.childColors[p]) ? state.childColors[p][c] : null;
                     if (cColorIdx !== null && cColorIdx !== undefined && state.palette[cColorIdx]) {
                         cEl.style.color = state.palette[cColorIdx];
                     }
 
                     cEl.onclick = () => {
+                        searchScope = "TAB"; // ★ タブクリックでTABスコープへ復帰して選択
                         state.filterParent = p;
                         state.filterChild[p] = c;
                         renderPanel();
@@ -1431,12 +1462,23 @@
         }, { passive: true });
 
         const q = searchEl ? searchEl.value.toLowerCase() : "";
-        let filtered = state.items.filter(item =>
-            item.parent === state.filterParent &&
-            item.child === state.filterChild[state.filterParent] &&
-            (state.filterColor === null || (item.color || 0) === state.filterColor) &&
-            String(item.title).toLowerCase().includes(q)
-        );
+        let filtered;
+
+        if (searchScope === "ALL") {
+            // ★ ALL検索時：全タブ・全データから横断検索
+            filtered = state.items.filter(item =>
+                (state.filterColor === null || (item.color || 0) === state.filterColor) &&
+                String(item.title).toLowerCase().includes(q)
+            );
+        } else {
+            // ★ TAB検索時：現在選択中のタブ内のみ検索
+            filtered = state.items.filter(item =>
+                item.parent === state.filterParent &&
+                item.child === state.filterChild[state.filterParent] &&
+                (state.filterColor === null || (item.color || 0) === state.filterColor) &&
+                String(item.title).toLowerCase().includes(q)
+            );
+        }
         filtered.sort((a, b) => (a.order || 0) - (b.order || 0));
 
         filtered.forEach(item => {
@@ -1562,6 +1604,16 @@
             const titleText = document.createElement("span");
             titleText.textContent = item.title;
             name.appendChild(titleText);
+
+            // ★ ALL検索時は、所属しているフォルダ名バッジ（例: [A > A-1]）を表示
+            if (searchScope === "ALL") {
+                const pName = state.parents[item.parent] || ("P" + item.parent);
+                const cName = (state.children[item.parent] && state.children[item.parent][item.child]) || ("C" + item.child);
+                const badge = document.createElement("span");
+                badge.className = "jcs-tag-badge";
+                badge.textContent = `${pName} > ${cName}`;
+                name.appendChild(badge);
+            }
 
             attachDragOutListener(item, name);
 
