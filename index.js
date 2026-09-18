@@ -711,6 +711,7 @@
             pasteBtn.onmouseleave = () => pasteBtn.style.background = "#3d4b3d";
         }
 
+        // --- showFolderMenu の pasteBtn 生成の直後に追加 ---
         const sepColor = document.createElement("div");
         sepColor.style.height = "1px";
         sepColor.style.background = "#444";
