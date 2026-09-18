@@ -1241,15 +1241,6 @@
             titleEl.style.paddingLeft = "6px";
         }
 
-        } else {
-            lastEditingId = null;
-            if (preservedTitle !== null) titleEl.value = preservedTitle;
-            if (preservedBody !== null) bodyEl.value = preservedBody;
-
-            // ★ 新規入力時も選んだ色を即時反映
-            titleEl.style.borderLeft = "6px solid " + state.palette[state.currentColor];
-            titleEl.style.paddingLeft = "6px";
-        }
 
         const filter = document.createElement("div");
         filter.className = "jcs-filter";
