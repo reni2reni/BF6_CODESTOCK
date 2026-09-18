@@ -160,6 +160,89 @@
         }
     }
 
+    // --- 履歴管理（Undo / Redo） ---
+    const MAX_HISTORY = 30;
+    let undoStack = [];
+    let redoStack = [];
+    let isHistoryAction = false;
+    let currentSnapshot = null;
+
+    function getSnapshotString() {
+        return JSON.stringify({
+            items: state.items,
+            parents: state.parents,
+            children: state.children,
+            parentColors: state.parentColors,
+            childColors: state.childColors,
+            parentCount: state.parentCount,
+            childCount: state.childCount,
+            palette: state.palette,
+            iconAtlas: state.iconAtlas
+        });
+    }
+
+    // 元に戻す（Undo）
+    function doUndo() {
+        if (undoStack.length === 0) return;
+        isHistoryAction = true;
+
+        redoStack.push(getSnapshotString());
+        const prevJson = undoStack.pop();
+        const prevData = JSON.parse(prevJson);
+        Object.assign(state, prevData);
+        currentSnapshot = prevJson;
+
+        saveState();
+        renderPanel();
+        setStatus("Undo");
+        isHistoryAction = false;
+    }
+
+    // やり直す（Redo）
+    function doRedo() {
+        if (redoStack.length === 0) return;
+        isHistoryAction = true;
+
+        undoStack.push(getSnapshotString());
+        const nextJson = redoStack.pop();
+        const nextData = JSON.parse(nextJson);
+        Object.assign(state, nextData);
+        currentSnapshot = nextJson;
+
+        saveState();
+        renderPanel();
+        setStatus("Redo");
+        isHistoryAction = false;
+    }
+
+    // 既存の saveState 関数を以下のように差し替え（変更を自動記録）
+    function saveState() {
+        // ★ 操作履歴の自動記録
+        if (!isHistoryAction) {
+            const nextSnap = getSnapshotString();
+            if (currentSnapshot === null) {
+                currentSnapshot = nextSnap;
+            } else if (nextSnap !== currentSnapshot) {
+                undoStack.push(currentSnapshot);
+                if (undoStack.length > MAX_HISTORY) undoStack.shift();
+                currentSnapshot = nextSnap;
+                redoStack = []; // 新しい操作が行われたらRedoスタックはクリア
+            }
+        }
+
+        idbSet("app_state", state).then(() => {
+            setStatus("Saved");
+        }).catch(err => {
+            console.warn("[JS Code Stock] IndexedDB save failed, fallback to local:", err);
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                setStatus("Saved");
+            } catch (e) {
+                setStatus("Save failed");
+            }
+        });
+    }
+
     function saveState() {
         idbSet("app_state", state).then(() => {
             setStatus("Saved");
@@ -426,6 +509,8 @@
 #js-code-stock-panel .jcs-scope-btn:hover{background:#3a3a3a;color:#fff}
 #js-code-stock-panel .jcs-scope-btn.active{background:#2259a8;color:#fff;border-color:#4da3ff}
 #js-code-stock-panel .jcs-tag-badge{font-size:10px;color:#777;background:#1a1a1a;padding:1px 4px;border-radius:2px;margin-left:6px;border:1px solid #333}
+#js-code-stock-panel .jcs-history-btn{font-size:12px;padding:3px 5px;background:#333}
+#js-code-stock-panel .jcs-history-btn.disabled{opacity:0.3;cursor:not-allowed;filter:grayscale(1)}
 `;
         document.head.appendChild(style);
     }
@@ -1113,22 +1198,42 @@
         const tools = document.createElement("div");
         tools.className = "jcs-tools";
 
+        // ★ Undo ボタン（↩️）
+        const canUndo = (undoStack.length > 0);
+        const undoBtn = makeButton("↩️", () => {
+            if (canUndo) doUndo();
+        }, "jcs-history-btn" + (canUndo ? "" : " disabled"));
+        undoBtn.title = canUndo ? `Undo (元に戻す) [残り${undoStack.length}回]` : "Undo (履歴なし)";
+        if (!canUndo) undoBtn.disabled = true;
+
+        // ★ Redo ボタン（↪️）
+        const canRedo = (redoStack.length > 0);
+        const redoBtn = makeButton("↪️", () => {
+            if (canRedo) doRedo();
+        }, "jcs-history-btn" + (canRedo ? "" : " disabled"));
+        redoBtn.title = canRedo ? `Redo (やり直す) [残り${redoStack.length}回]` : "Redo (履歴なし)";
+        if (!canRedo) redoBtn.disabled = true;
+
+        // ⚙️ 設定ボタン
         const gearBtn = makeButton("⚙️", (e) => {
             e.stopPropagation();
             showSettingsMenu(gearBtn);
         }, "jcs-gear");
         gearBtn.title = "Settings (EXPORT / IMPORT / Tab Count)";
 
+        // 🔒️ ピン留めボタン
         const pinBtn = makeButton(isPinned ? "🔒️" : "🔓️", () => {
             isPinned = !isPinned;
             renderPanel();
         }, "jcs-pin" + (isPinned ? "" : " unlocked"));
         pinBtn.title = isPinned ? "Locked (Keep open)" : "Unlocked (Auto close)";
 
+        // ✕ 閉じるボタン
         const close = makeButton("✕", closePanel, "jcs-close");
         close.title = "Close";
 
-        tools.append(gearBtn, pinBtn, close);
+        // ★ 並び順：↩️ ↪️ ⚙️ 🔒️ ✕
+        tools.append(undoBtn, redoBtn, gearBtn, pinBtn, close);
         head.append(ttl, tools);
 
         if (isCollapsed) {
