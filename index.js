@@ -197,8 +197,12 @@
         style.textContent = `
 #js-code-stock-panel{position:fixed;left:18px;top:58px;width:400px;height:600px;min-width:320px;min-height:320px;max-width:calc(100vw - 36px);max-height:calc(100vh - 76px);z-index:2147483646;background:#111;color:#fff;border:1px solid #333;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);font-family:sans-serif;display:flex;flex-direction:column;overflow:hidden;padding:6px;resize:both;user-select:none;-webkit-user-select:none}
 #js-code-stock-panel *{box-sizing:border-box}
-#js-code-stock-panel .jcs-container{display:flex;flex-direction:column;height:100%;padding:0 4px;min-height:0}
-#js-code-stock-panel .jcs-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+
+/* コンテナ：絶対に画面外に突き抜けさせない */
+#js-code-stock-panel .jcs-container{display:flex;flex-direction:column;height:100%;max-height:100%;padding:0 4px;overflow:hidden}
+
+/* ★ 上部固定エリア：flex-shrink:0 で絶対に押し潰させない ★ */
+#js-code-stock-panel .jcs-head{flex-shrink:0;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 #js-code-stock-panel .jcs-title{font-size:18px;text-align:left;cursor:grab;user-select:none;flex:1}
 #js-code-stock-panel .jcs-title:active{cursor:grabbing}
 #js-code-stock-panel .jcs-tools{display:flex;gap:4px;align-items:center}
@@ -207,15 +211,19 @@
 #js-code-stock-panel .jcs-tools button{font-size:11px;padding:5px 7px}
 #js-code-stock-panel .jcs-close{font-size:18px;padding:1px 6px;background:#7a2020}
 #js-code-stock-panel .jcs-close:hover{background:#a52a2a}
-#js-code-stock-panel .jcs-tabs{display:flex;gap:0;background:#1f1f1f;padding:2px 12px 0;overflow:hidden}
+
+/* 親タブ・子タブ（潰れ防止） */
+#js-code-stock-panel .jcs-tabs{flex-shrink:0;height:36px;display:flex;gap:0;background:#1f1f1f;padding:2px 12px 0;overflow:hidden}
 #js-code-stock-panel .jcs-tab{flex:1;max-width:240px;height:36px;background:#2d2d2d;color:#9aa0a6;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;position:relative;border:none;border-top-left-radius:4px;border-top-right-radius:4px;border-bottom-left-radius:0;border-bottom-right-radius:0;transform:perspective(40px) rotateX(6deg);transform-origin:bottom;z-index:1;box-shadow:0 2px 0 0 #fff}
 #js-code-stock-panel .jcs-tab:hover{background:#35363a;color:#e8eaed;z-index:2}
 #js-code-stock-panel .jcs-tab.active{background:#35363a;color:#fff;z-index:3;box-shadow:-2px 0 0 0 #fff,2px 0 0 0 #fff,0 -2px 0 0 #fff}
-#js-code-stock-panel .jcs-child{margin-bottom:4px}
-#js-code-stock-panel .jcs-colors{display:flex;gap:4px;background:transparent;padding:0 0 3px;overflow:visible;width:100%}
+#js-code-stock-panel .jcs-child{flex-shrink:0;height:36px;margin-bottom:4px}
+#js-code-stock-panel .jcs-colors{flex-shrink:0;display:flex;gap:4px;background:transparent;padding:0 0 3px;overflow:visible;width:100%}
 #js-code-stock-panel .jcs-colors .jcs-tab{flex:1;min-width:0;height:18px;padding:0;box-shadow:none;transform:none;border-radius:2px}
 #js-code-stock-panel .jcs-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
-#js-code-stock-panel .jcs-input-section{margin-bottom:6px}
+
+/* 入力欄・フィルター・見出しバー（潰れ防止） */
+#js-code-stock-panel .jcs-input-section{flex-shrink:0;margin-bottom:6px}
 #js-code-stock-panel .jcs-input-row{display:flex;gap:4px}
 #js-code-stock-panel .jcs-input-left{width:100%;display:flex;flex-direction:column;gap:3px}
 #js-code-stock-panel .jcs-input-wrapper{position:relative;width:100%}
@@ -230,13 +238,37 @@
 #js-code-stock-panel .jcs-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);cursor:pointer;background:#555;color:#fff;border:none;border-radius:3px;width:20px;height:20px;font-size:14px;line-height:18px;z-index:10}
 #js-code-stock-panel .jcs-clear:hover{background:#ad1a1a}
 #js-code-stock-panel #jcs-toggle-input{width:100%;height:30px;background:#444;border:none;color:#fff;cursor:pointer;margin-top:3px;font-size:13px}
-#js-code-stock-panel .jcs-filter{padding:0 0 3px;border-bottom:1px solid #333}
+#js-code-stock-panel .jcs-filter{flex-shrink:0;padding:0 0 3px;border-bottom:1px solid #333}
 #js-code-stock-panel .jcs-filter-colors{display:flex;gap:4px;background:transparent;padding:0;overflow:visible;width:100%}
-#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:1;min-width:0;height:24px;padding:0;box-shadow:none;transform:none;border-radius:2px;font-size:11px;display:flex;align-items:center;justify-content:center}
+#js-code-stock-panel .jcs-filter-colors .jcs-tab{flex:1;min-width:0;height:18px;padding:0;box-shadow:none;transform:none;border-radius:2px;font-size:11px;display:flex;align-items:center;justify-content:center}
 #js-code-stock-panel .jcs-filter-colors .jcs-tab.active{border:2px solid #fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);z-index:4}
 #js-code-stock-panel .jcs-search{height:30px;font-size:18px;margin-top:3px}
-#js-code-stock-panel .jcs-list{flex:1;overflow:auto;margin-top:4px;min-height:0;padding-right:2px}
-#js-code-stock-panel .jcs-list::-webkit-scrollbar{width:10px}
+#js-code-stock-panel .jcs-body-head{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:3px 0;margin-top:2px;border-bottom:1px solid #333}
+#js-code-stock-panel .jcs-tree-toggle{background:#2a2a2a;color:#4da3ff;border:1px solid #444;font-size:11px;padding:2px 6px;cursor:pointer;border-radius:3px;font-weight:bold}
+#js-code-stock-panel .jcs-tree-toggle:hover{background:#3a3a3a;color:#fff}
+#js-code-stock-panel .jcs-body-title{font-size:12px;font-weight:bold;color:#888}
+
+/* ★ メインエリア：余った縦幅を100%フル活用（flex: 1 1 0; min-height: 0;） ★ */
+#js-code-stock-panel .jcs-main-pane{display:flex;flex:1 1 0;min-height:0;height:100%;margin-top:4px;gap:6px;overflow:hidden}
+
+/* ★ 左ツリーナビ：枠内で厳格にスクロールバーを表示 ★ */
+#js-code-stock-panel .jcs-tree-nav{width:145px;min-width:130px;max-width:180px;height:100%;max-height:100%;background:#181818;border:1px solid #333;border-radius:4px;overflow-y:scroll!important;overflow-x:hidden;padding:4px;flex-shrink:0;display:block}
+#js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar{width:8px!important;display:block!important}
+#js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-track{background:#161616!important}
+#js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb{background:#555!important;border-radius:4px}
+#js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb:hover{background:#777!important}
+
+#js-code-stock-panel .jcs-tree-parent{font-size:13.5px;font-weight:bold;color:#ddd;background:#242424;padding:5px 8px;border-radius:3px;cursor:pointer;margin-top:5px;margin-bottom:2px;border-left:3px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+#js-code-stock-panel .jcs-tree-parent:hover{background:#2e2e2e;color:#fff}
+#js-code-stock-panel .jcs-tree-parent.active{border-left-color:#4da3ff;background:#252d3a;color:#fff}
+
+#js-code-stock-panel .jcs-tree-child{font-size:12.5px;color:#aaa;padding:4px 8px 4px 14px;border-radius:2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:2px solid transparent;display:block;margin-bottom:1px}
+#js-code-stock-panel .jcs-tree-child:hover{background:#2a2a2a;color:#ddd}
+#js-code-stock-panel .jcs-tree-child.active{color:#fff;background:#35363a;font-weight:bold;border-left-color:#2ecc71}
+
+/* ★ 右側コードリスト：押し潰されず快適にスクロール ★ */
+#js-code-stock-panel .jcs-list{flex:1 1 0;min-width:0;height:100%;max-height:100%;overflow-y:auto!important;padding-right:2px}
+#js-code-stock-panel .jcs-list::-webkit-scrollbar{width:8px}
 #js-code-stock-panel .jcs-list::-webkit-scrollbar-track{background:#1e1e1e}
 #js-code-stock-panel .jcs-list::-webkit-scrollbar-thumb{background:#444;border-radius:6px}
 #js-code-stock-panel .jcs-list::-webkit-scrollbar-thumb:hover{background:#666}
@@ -256,17 +288,19 @@
 #js-code-stock-panel .jcs-actions button{font-size:13px;padding:2px 6px;height:22px;line-height:18px;border-radius:3px}
 #js-code-stock-panel .jcs-btn-edit:hover{background:#3571b3}
 #js-code-stock-panel .jcs-btn-del:hover{background:#e74c3c}
-#js-code-stock-panel .jcs-foot{padding-top:4px;border-top:1px solid #333;display:flex;justify-content:space-between;align-items:center}
+
+#js-code-stock-panel .jcs-foot{flex-shrink:0;padding-top:4px;border-top:1px solid #333;display:flex;justify-content:space-between;align-items:center}
 #js-code-stock-panel .jcs-status{color:#aaa;font-size:11px}
-#js-code-stock-panel .jcs-foot-tools{display:flex;gap:4px}
 #js-code-stock-panel .jcs-hidden{display:none!important}
 #js-code-stock-panel input:focus,#js-code-stock-panel textarea:focus{outline:1px solid #4a7bd4}
+
+/* 設定メニュー・ボタン */
+#js-code-stock-panel .jcs-gear{font-size:13px;padding:3px 6px;background:#333}
 #js-code-stock-panel .jcs-pin{font-size:13px;padding:3px 5px;background:#333}
 #js-code-stock-panel .jcs-pin.unlocked{opacity:0.45;filter:grayscale(1)}
-#js-code-stock-panel .jcs-collapse{font-size:13px;padding:3px 5px;background:#333}
 #js-code-stock-panel.collapsed{height:auto!important;min-height:0!important;resize:none}
-#js-code-stock-panel .jcs-gear{font-size:13px;padding:3px 6px;background:#333}
-#jcs-settings-menu{position:fixed;background:#222;border:1px solid #555;border-radius:6px;padding:8px;z-index:2147483647;box-shadow:0 6px 20px rgba(0,0,0,0.8);display:flex;flex-direction:column;gap:6px;min-width:160px}
+
+#jcs-settings-menu{position:fixed;background:#222;border:1px solid #555;border-radius:6px;padding:8px;z-index:2147483647;box-shadow:0 6px 20px rgba(0,0,0,0.8);display:flex;flex-direction:column;gap:6px;min-width:180px}
 #jcs-settings-menu button.jcs-menu-btn{width:100%;padding:5px 8px;font-size:12px;background:#333;color:#fff;border:none;border-radius:3px;cursor:pointer;text-align:center}
 #jcs-settings-menu button.jcs-menu-btn:hover{background:#4a7bd4}
 .jcs-menu-sep{height:1px;background:#444;margin:2px 0}
@@ -275,22 +309,6 @@
 .jcs-counter button{width:22px;height:22px;padding:0;text-align:center;font-size:13px;line-height:20px;background:#333;color:#fff;border:1px solid #555;border-radius:3px;cursor:pointer}
 .jcs-counter button:hover{background:#555}
 .jcs-counter span{min-width:18px;text-align:center;font-weight:bold;color:#fff}
-/* 左ツリーナビゲーション枠（高さ固定・スクロールバー強制表示） */
-#js-code-stock-panel .jcs-tree-nav{width:145px;min-width:125px;max-width:180px;background:#181818;border:1px solid #333;border-radius:4px;overflow-y:auto!important;overflow-x:hidden;padding:4px;box-sizing:border-box;display:block;height:100%}
-#js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar{width:8px!important;display:block!important}
-#js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-track{background:#161616!important}
-#js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb{background:#555!important;border-radius:4px}
-#js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb:hover{background:#777!important}
-
-/* 親項目（安定したブロック表示） */
-#js-code-stock-panel .jcs-tree-parent{font-size:13.5px;font-weight:bold;color:#ddd;background:#242424;padding:5px 8px;border-radius:3px;cursor:pointer;margin-top:6px;margin-bottom:2px;border-left:3px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
-#js-code-stock-panel .jcs-tree-parent:hover{background:#2e2e2e;color:#fff}
-#js-code-stock-panel .jcs-tree-parent.active{border-left-color:#4da3ff;background:#252d3a;color:#fff}
-
-/* 子項目（安定したブロック表示） */
-#js-code-stock-panel .jcs-tree-child{font-size:12.5px;color:#aaa;padding:4px 8px 4px 14px;border-radius:2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:2px solid transparent;display:block;margin-bottom:1px}
-#js-code-stock-panel .jcs-tree-child:hover{background:#2a2a2a;color:#ddd}
-#js-code-stock-panel .jcs-tree-child.active{color:#fff;background:#35363a;font-weight:bold;border-left-color:#2ecc71}
 `;
         document.head.appendChild(style);
     }
