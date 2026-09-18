@@ -429,106 +429,6 @@
         return b;
     }
 
-    const ICON_SIZE = 20; // アイコンの一辺サイズ(px)
-    let pendingIconCoord = null; // 新規登録時に一時保持するアイコン座標
-
-    // ブロック先頭のアイコン画像を抽出
-    function extractBlockIcon(block) {
-        if (!block) return null;
-        if (block.inputList) {
-            for (const input of block.inputList) {
-                if (input.fieldRow) {
-                    for (const field of input.fieldRow) {
-                        if (field && field.src_) return field.src_;
-                        if (field && typeof field.getValue === "function") {
-                            const v = field.getValue();
-                            if (typeof v === "string" && (v.startsWith("data:image") || v.includes(".svg") || v.includes(".png"))) {
-                                return v;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        const svgRoot = block.getSvgRoot && block.getSvgRoot();
-        if (svgRoot) {
-            const img = svgRoot.querySelector("image");
-            if (img) {
-                const href = img.getAttribute("href") || img.getAttribute("xlink:href");
-                if (href) return href;
-            }
-            const use = svgRoot.querySelector("use");
-            if (use) {
-                const ref = use.getAttribute("href") || use.getAttribute("xlink:href");
-                if (ref && ref.startsWith("#")) {
-                    const sym = document.querySelector(ref);
-                    if (sym) {
-                        const vb = sym.getAttribute("viewBox") || "0 0 24 24";
-                        const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">${sym.innerHTML}</svg>`;
-                        return "data:image/svg+xml;utf8," + encodeURIComponent(svgStr);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    // アイコンをスプライトシート（アトラス画像）に統合して座標を返す（重複時は既存座標を返して容量節約）
-    function getOrAddIconToAtlas(iconSrc) {
-        if (!iconSrc) return Promise.resolve(null);
-        if (!state.iconAtlas) {
-            state.iconAtlas = { spriteUrl: null, sources: [] };
-        }
-        const atlas = state.iconAtlas;
-        const existingIdx = atlas.sources.indexOf(iconSrc);
-
-        // すでに登録済みのアイコンなら、その座標を返して終了（容量消費ゼロ！）
-        if (existingIdx !== -1) {
-            return Promise.resolve({ x: existingIdx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-        }
-
-        // 新規アイコンの場合、スプライト画像にタイリング追加
-        return new Promise(resolve => {
-            const img = new Image();
-            img.crossOrigin = "anonymous";
-            img.onload = () => {
-                const idx = atlas.sources.length;
-                atlas.sources.push(iconSrc);
-
-                const totalWidth = atlas.sources.length * ICON_SIZE;
-                const canvas = document.createElement("canvas");
-                canvas.width = totalWidth;
-                canvas.height = ICON_SIZE;
-                const ctx = canvas.getContext("2d");
-
-                if (atlas.spriteUrl) {
-                    const oldSprite = new Image();
-                    oldSprite.onload = () => {
-                        ctx.drawImage(oldSprite, 0, 0);
-                        ctx.drawImage(img, idx * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE);
-                        atlas.spriteUrl = canvas.toDataURL("image/png");
-                        saveState();
-                        resolve({ x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                    };
-                    oldSprite.onerror = () => {
-                        ctx.drawImage(img, idx * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE);
-                        atlas.spriteUrl = canvas.toDataURL("image/png");
-                        saveState();
-                        resolve({ x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                    };
-                    oldSprite.src = atlas.spriteUrl;
-                } else {
-                    ctx.drawImage(img, 0, 0, ICON_SIZE, ICON_SIZE);
-                    atlas.spriteUrl = canvas.toDataURL("image/png");
-                    saveState();
-                    resolve({ x: 0, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                }
-            };
-            img.onerror = () => resolve(null);
-            img.src = iconSrc;
-        });
-    }
-
     function exportData() {
         const data = {
             items: state.items,
@@ -679,6 +579,105 @@
         input.click();
     }
 
+    const ICON_SIZE = 20; // アイコンの一辺サイズ(px)
+    let pendingIconCoord = null; // 新規登録時に一時保持するアイコン座標
+
+    // ブロック先頭のアイコン画像を抽出
+    function extractBlockIcon(block) {
+        if (!block) return null;
+        if (block.inputList) {
+            for (const input of block.inputList) {
+                if (input.fieldRow) {
+                    for (const field of input.fieldRow) {
+                        if (field && field.src_) return field.src_;
+                        if (field && typeof field.getValue === "function") {
+                            const v = field.getValue();
+                            if (typeof v === "string" && (v.startsWith("data:image") || v.includes(".svg") || v.includes(".png"))) {
+                                return v;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        const svgRoot = block.getSvgRoot && block.getSvgRoot();
+        if (svgRoot) {
+            const img = svgRoot.querySelector("image");
+            if (img) {
+                const href = img.getAttribute("href") || img.getAttribute("xlink:href");
+                if (href) return href;
+            }
+            const use = svgRoot.querySelector("use");
+            if (use) {
+                const ref = use.getAttribute("href") || use.getAttribute("xlink:href");
+                if (ref && ref.startsWith("#")) {
+                    const sym = document.querySelector(ref);
+                    if (sym) {
+                        const vb = sym.getAttribute("viewBox") || "0 0 24 24";
+                        const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">${sym.innerHTML}</svg>`;
+                        return "data:image/svg+xml;utf8," + encodeURIComponent(svgStr);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    // アイコンをスプライトシート（アトラス画像）に統合して座標を返す（重複時は既存座標を返して容量節約）
+    function getOrAddIconToAtlas(iconSrc) {
+        if (!iconSrc) return Promise.resolve(null);
+        if (!state.iconAtlas) {
+            state.iconAtlas = { spriteUrl: null, sources: [] };
+        }
+        const atlas = state.iconAtlas;
+        const existingIdx = atlas.sources.indexOf(iconSrc);
+
+        // すでに登録済みのアイコンなら、その座標を返して終了（容量消費ゼロ！）
+        if (existingIdx !== -1) {
+            return Promise.resolve({ x: existingIdx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
+        }
+
+        // 新規アイコンの場合、スプライト画像にタイリング追加
+        return new Promise(resolve => {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => {
+                const idx = atlas.sources.length;
+                atlas.sources.push(iconSrc);
+
+                const totalWidth = atlas.sources.length * ICON_SIZE;
+                const canvas = document.createElement("canvas");
+                canvas.width = totalWidth;
+                canvas.height = ICON_SIZE;
+                const ctx = canvas.getContext("2d");
+
+                if (atlas.spriteUrl) {
+                    const oldSprite = new Image();
+                    oldSprite.onload = () => {
+                        ctx.drawImage(oldSprite, 0, 0);
+                        ctx.drawImage(img, idx * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE);
+                        atlas.spriteUrl = canvas.toDataURL("image/png");
+                        saveState();
+                        resolve({ x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
+                    };
+                    oldSprite.onerror = () => {
+                        ctx.drawImage(img, idx * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE);
+                        atlas.spriteUrl = canvas.toDataURL("image/png");
+                        saveState();
+                        resolve({ x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
+                    };
+                    oldSprite.src = atlas.spriteUrl;
+                } else {
+                    ctx.drawImage(img, 0, 0, ICON_SIZE, ICON_SIZE);
+                    atlas.spriteUrl = canvas.toDataURL("image/png");
+                    saveState();
+                    resolve({ x: 0, y: 0, w: ICON_SIZE, h: ICON_SIZE });
+                }
+            };
+            img.onerror = () => resolve(null);
+            img.src = iconSrc;
+        });
+    }
 
     function showFolderMenu(e, type, index) {
         const old = document.getElementById("uiPrompt");
@@ -1024,7 +1023,6 @@
 
         menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, pRow, cRow, sep2, resetBtn);
         document.body.appendChild(menu);
-
 
         setTimeout(() => {
             const onOutside = (e) => {
@@ -1384,6 +1382,7 @@
                 row.style.border = "1px dashed #888";
             }
 
+            // 1. 左側ドラッグボタン（≡）
             const drag = document.createElement("button");
             drag.className = "jcs-drag" + (selectedIds.has(id) ? " active" : "");
             drag.textContent = "≡";
@@ -1475,6 +1474,7 @@
                 renderList();
             };
 
+            // 2. 中央：コード名要素 ＋ ★スプライトアイコン★
             const name = document.createElement("div");
             name.className = "jcs-name";
             name.style.borderLeftColor = state.palette[item.color || 0];
@@ -1500,6 +1500,7 @@
 
             attachDragOutListener(item, name);
 
+            // 3. 右側アクションボタン（EDIT / ✕）
             const actions = document.createElement("div");
             actions.className = "jcs-actions";
             actions.append(
@@ -1514,7 +1515,7 @@
                         state.items = state.items.filter(i => !selectedIds.has(String(i.id)));
                         selectedIds.clear();
                         lastSelected = null;
-                        reorderGroup(item.parent, item.child);
+                        reorderGroup(state.filterParent, state.filterChild[state.filterParent]);
                         saveState();
                         renderList();
                     }
@@ -1525,6 +1526,7 @@
             listEl.appendChild(row);
         });
 
+        // 4. 最下部ドロップ領域
         let endDrop = document.createElement("div");
         endDrop.style.height = "16px";
         endDrop.style.marginTop = "2px";
@@ -1559,6 +1561,17 @@
         };
         listEl.appendChild(endDrop);
 
+        // 5. 新規追加直後の末尾スクロール
+        if (scrollToBottomOnRender && listEl) {
+            scrollToBottomOnRender = false;
+            requestAnimationFrame(() => {
+                if (listEl) {
+                    listEl.scrollTop = listEl.scrollHeight;
+                }
+            });
+        }
+
+        // 6. 空の場合の表示
         if (!filtered.length) {
             const empty = document.createElement("div");
             empty.style.padding = "20px";
@@ -2269,6 +2282,55 @@
         lastEditingId = null;
         saveState();
 
+        if (titleEl) titleEl.value = "";
+        if (bodyEl) bodyEl.value = "";
+        inputHidden = true;
+
+        if (interactionMode === "blockEntry") {
+            interactionMode = "normal";
+            pendingBlockData = null;
+
+            if (isTempExpanded) {
+                isTempExpanded = false;
+                isCollapsed = true;
+                renderPanel();
+                return;
+            }
+
+            if (!isPinned) {
+                closePanel();
+                return;
+            }
+
+            renderPanel();
+            return;
+        }
+
+        renderPanel();
+    }
+
+    function nextOrder() {
+        const group = state.items.filter(x =>
+            x.parent === state.filterParent &&
+            x.child === state.filterChild[state.filterParent]
+        );
+        return group.length;
+    }
+
+    function editItem(item) {
+        editingIdValue = item.id;
+        lastEditingId = null;
+        state.filterParent = item.parent;
+        state.filterChild[item.parent] = item.child;
+        state.currentColor = item.color || 0;
+        inputHidden = false;
+        renderPanel();
+        if (titleEl) titleEl.focus();
+    }
+
+    function cancelEdit() {
+        editingIdValue = null;
+        lastEditingId = null;
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
         inputHidden = true;
