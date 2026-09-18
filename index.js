@@ -189,6 +189,17 @@
             state.filterChild.push(0);
         }
 
+        // ★ タブ文字色配列の安全チェック
+        if (!Array.isArray(state.parentColors)) state.parentColors = Array(8).fill(null);
+        while (state.parentColors.length < 8) state.parentColors.push(null);
+
+        if (!Array.isArray(state.childColors)) state.childColors = [];
+        while (state.childColors.length < 8) state.childColors.push(Array(8).fill(null));
+        for (let p = 0; p < 8; p++) {
+            if (!Array.isArray(state.childColors[p])) state.childColors[p] = Array(8).fill(null);
+            while (state.childColors[p].length < 8) state.childColors[p].push(null);
+        }
+
         if (state.filterParent >= state.parentCount || state.filterParent < 0) {
             state.filterParent = 0;
         }
@@ -700,7 +711,60 @@
             pasteBtn.onmouseleave = () => pasteBtn.style.background = "#3d4b3d";
         }
 
-        box.append(t, input, rowBtn, sep, copyBtn, pasteBtn);
+        const sepColor = document.createElement("div");
+        sepColor.style.height = "1px";
+        sepColor.style.background = "#444";
+        sepColor.style.margin = "8px 0 6px";
+
+        const colorLabel = document.createElement("div");
+        colorLabel.textContent = "Text Color (タブ文字色)";
+        colorLabel.style.fontSize = "11px";
+        colorLabel.style.color = "#aaa";
+        colorLabel.style.marginBottom = "4px";
+
+        const colorRow = document.createElement("div");
+        colorRow.style.display = "flex";
+        colorRow.style.gap = "4px";
+        colorRow.style.alignItems = "center";
+
+        // ✕ リセットボタン（デフォルト色に戻す）
+        const resetColorBtn = makeButton("✕", () => {
+            if (isParent) state.parentColors[index] = null;
+            else state.childColors[state.filterParent][index] = null;
+            saveState();
+            renderPanel();
+            box.remove();
+        });
+        resetColorBtn.title = "Default Color";
+        resetColorBtn.style.width = "18px";
+        resetColorBtn.style.height = "18px";
+        resetColorBtn.style.padding = "0";
+        resetColorBtn.style.fontSize = "10px";
+        resetColorBtn.style.background = "#333";
+        resetColorBtn.style.color = "#888";
+        colorRow.appendChild(resetColorBtn);
+
+        // 8色カラーボタン
+        state.palette.slice(0, COLOR_COUNT).forEach((c, cIdx) => {
+            const b = makeButton("", () => {
+                if (isParent) state.parentColors[index] = cIdx;
+                else state.childColors[state.filterParent][index] = cIdx;
+                saveState();
+                renderPanel();
+                box.remove();
+            });
+            b.style.background = c;
+            b.style.width = "18px";
+            b.style.height = "18px";
+            b.style.padding = "0";
+            b.style.borderRadius = "2px";
+            b.style.border = "1px solid #222";
+            b.style.cursor = "pointer";
+            colorRow.appendChild(b);
+        });
+
+        // ボックスにアペンド（カラー行を最下部に追加）
+        box.append(t, input, rowBtn, sep, copyBtn, pasteBtn, sepColor, colorLabel, colorRow);
         document.body.appendChild(box);
         input.focus();
         input.select();
@@ -1089,13 +1153,19 @@
 
             for (let p = 0; p < state.parentCount; p++) {
                 const pName = state.parents[p] || ("P" + p);
-                if (String(pName).trim() === "-") {
-                    continue;
-                }
+                if (String(pName).trim() === "-") continue;
 
+                // 親項目 [ 親A ]
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent";
                 pEl.textContent = pName;
+
+                // ★ 親の文字色が設定されていれば反映
+                const pColorIdx = state.parentColors ? state.parentColors[p] : null;
+                if (pColorIdx !== null && pColorIdx !== undefined && state.palette[pColorIdx]) {
+                    pEl.style.color = state.palette[pColorIdx];
+                }
+
                 pEl.onclick = () => {
                     state.filterParent = p;
                     renderPanel();
@@ -1106,17 +1176,23 @@
                 };
                 treeNav.appendChild(pEl);
 
+                // 子項目 [ 子A-1 ] 〜 [ 子A-8 ]
                 const cList = state.children[p] || [];
                 for (let c = 0; c < state.childCount; c++) {
                     const cName = cList[c] || (state.parents[p] + "-" + (c + 1));
-                    if (String(cName).trim() === "-") {
-                        continue;
-                    }
+                    if (String(cName).trim() === "-") continue;
 
                     const cEl = document.createElement("div");
                     const isActive = (state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
                     cEl.textContent = cName;
+
+                    // ★ 子の文字色が設定されていれば反映
+                    const cColorIdx = (state.childColors && state.childColors[p]) ? state.childColors[p][c] : null;
+                    if (cColorIdx !== null && cColorIdx !== undefined && state.palette[cColorIdx]) {
+                        cEl.style.color = state.palette[cColorIdx];
+                    }
+
                     cEl.onclick = () => {
                         state.filterParent = p;
                         state.filterChild[p] = c;
