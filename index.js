@@ -579,6 +579,133 @@
         input.click();
     }
 
+    // PORTAL のブロック内アイコンマークを全自動収集してPNG一覧シートとして書き出し
+    function exportPortalIconsAsPng() {
+        setStatus("Scanning icons...");
+
+        const iconsMap = new Map(); // src -> name
+
+        // 1. ワークスペース内および画面内の全 SVG <image> 要素を収集
+        document.querySelectorAll("svg image, image").forEach((img, idx) => {
+            const href = img.getAttribute("href") || img.getAttribute("xlink:href");
+            if (href && (href.startsWith("data:") || href.includes("svg") || href.includes("png") || href.includes("icon"))) {
+                const name = img.getAttribute("data-id") || img.id || ("icon_" + (idx + 1));
+                iconsMap.set(href, name);
+            }
+        });
+
+        // 2. ページ内の <symbol> (SVGスプライト定義) を抽出してSVG化
+        document.querySelectorAll("svg symbol, defs symbol").forEach(sym => {
+            const id = sym.id;
+            if (id && !id.startsWith("jcs")) {
+                const vb = sym.getAttribute("viewBox") || "0 0 24 24";
+                const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">${sym.innerHTML}</svg>`;
+                const dataUrl = "data:image/svg+xml;utf8," + encodeURIComponent(svgStr);
+                iconsMap.set(dataUrl, id);
+            }
+        });
+
+        // 3. ワークスペース上の各ブロックの FieldImage から直接抽出
+        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+        if (ws) {
+            ws.getAllBlocks(false).forEach(b => {
+                if (b.inputList) {
+                    b.inputList.forEach(input => {
+                        if (input.fieldRow) {
+                            input.fieldRow.forEach(field => {
+                                if (field && field.src_) {
+                                    iconsMap.set(field.src_, (b.type || "block") + "_icon");
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        const iconList = Array.from(iconsMap.entries()).map(([src, name]) => ({ src, name }));
+
+        if (iconList.length === 0) {
+            alert("No icons found on the current screen.\nPlease make sure blocks are placed or visible.");
+            setStatus("Ready");
+            return;
+        }
+
+        setStatus(`Rendering ${iconList.length} icons to PNG...`);
+
+        // グリッド状（1行8個）のPNGキャンバスを構築
+        const cols = 8;
+        const rows = Math.ceil(iconList.length / cols);
+        const itemSize = 64; // 各アイコンセル 64x64
+        const padding = 16;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = cols * itemSize + padding * 2;
+        canvas.height = rows * itemSize + padding * 2;
+        const ctx = canvas.getContext("2d");
+
+        // 背景（ダークグレー）
+        ctx.fillStyle = "#181818";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        let loaded = 0;
+
+        iconList.forEach((item, idx) => {
+            const col = idx % cols;
+            const row = Math.floor(idx / cols);
+            const x = padding + col * itemSize;
+            const y = padding + row * itemSize;
+
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+
+            const onDone = (success) => {
+                // セル枠描画
+                ctx.fillStyle = "#242424";
+                ctx.strokeStyle = "#383838";
+                ctx.lineWidth = 1;
+                ctx.fillRect(x + 3, y + 3, itemSize - 6, itemSize - 6);
+                ctx.strokeRect(x + 3, y + 3, itemSize - 6, itemSize - 6);
+
+                // アイコン描画 (32x32で中央配置)
+                if (success) {
+                    try {
+                        ctx.drawImage(img, x + (itemSize - 32) / 2, y + 6, 32, 32);
+                    } catch (_) { }
+                }
+
+                // アイコンラベル名
+                ctx.fillStyle = "#888";
+                ctx.font = "9px sans-serif";
+                ctx.textAlign = "center";
+                const label = item.name.length > 9 ? item.name.slice(0, 8) + "…" : item.name;
+                ctx.fillText(label, x + itemSize / 2, y + itemSize - 8);
+
+                loaded++;
+                if (loaded === iconList.length) {
+                    // 全アイコン描画完了 → PNG書き出し
+                    canvas.toBlob(blob => {
+                        if (!blob) return;
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `Portal_Icons_Sheet_${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                        alert(`Export complete!\nSaved ${iconList.length} icons into a PNG sprite sheet.`);
+                        setStatus(`Exported ${iconList.length} icons`);
+                    }, "image/png");
+                }
+            };
+
+            img.onload = () => onDone(true);
+            img.onerror = () => onDone(false);
+            img.src = item.src;
+        });
+    }
+
     function showFolderMenu(e, type, index) {
         const old = document.getElementById("uiPrompt");
         if (old) old.remove();
@@ -798,6 +925,20 @@
         menu.style.left = Math.min(rect.left, window.innerWidth - 220) + "px";
         menu.style.top = (rect.bottom + 4) + "px";
 
+        // ★ PORTAL アイコン画像一括書き出しボタン
+        const iconExpBtn = makeButton("🖼️ EXPORT ICONS (PNG)", () => {
+            menu.remove();
+            exportPortalIconsAsPng();
+        }, "jcs-menu-btn");
+        iconExpBtn.style.background = "#2a5298";
+        iconExpBtn.style.fontWeight = "bold";
+        iconExpBtn.onmouseenter = () => iconExpBtn.style.background = "#3b6fc9";
+        iconExpBtn.onmouseleave = () => iconExpBtn.style.background = "#2a5298";
+
+        const sep0 = document.createElement("div");
+        sep0.className = "jcs-menu-sep";
+
+        // 1. 全体 EXPORT / IMPORT ボタン
         const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
         const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
 
@@ -907,7 +1048,7 @@
         resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
         resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
 
-        menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, pRow, cRow, sep2, resetBtn);
+        menu.append(iconExpBtn, sep0, expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, pRow, cRow, sep2, resetBtn);
         document.body.appendChild(menu);
 
         setTimeout(() => {
