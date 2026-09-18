@@ -1336,14 +1336,36 @@
         }, "jcs-scope-btn" + (searchScope === "ALL" ? " active" : ""));
         scopeBtn.title = (searchScope === "TAB") ? "Search in current tab" : "Search in ALL data";
 
+        // 検索枠 ＋ ✕クリアボタンのラッパー
+        const searchWrap = document.createElement("div");
+        searchWrap.className = "jcs-input-wrapper";
+        searchWrap.style.flex = "1";
+        searchWrap.style.position = "relative";
+        searchWrap.style.display = "flex";
+        searchWrap.style.alignItems = "center";
+
         searchEl = document.createElement("input");
         searchEl.className = "jcs-search";
         searchEl.style.flex = "1";
         searchEl.style.marginTop = "0";
         searchEl.placeholder = (searchScope === "ALL") ? "🔎search in ALL data..." : "🔎search in current tab...";
-        searchEl.oninput = renderList;
 
-        searchRow.append(scopeBtn, searchEl);
+        // ★ ✕ クリアボタン（文字がある時だけ表示）
+        const clearSearch = makeButton("✕", () => {
+            searchEl.value = "";
+            clearSearch.style.display = "none";
+            renderList();
+            searchEl.focus();
+        }, "jcs-clear");
+        clearSearch.style.display = "none"; // 初期は非表示
+
+        searchEl.oninput = () => {
+            clearSearch.style.display = searchEl.value.trim() ? "block" : "none";
+            renderList();
+        };
+
+        searchWrap.append(searchEl, clearSearch);
+        searchRow.append(scopeBtn, searchWrap);
         filter.append(fc, searchRow);
         // ▲▲▲▲▲ ここまで差し替えコード ▲▲▲▲▲
 
