@@ -215,7 +215,7 @@
         isHistoryAction = false;
     }
 
-    // 既存の saveState 関数を以下のように差し替え（変更を自動記録）
+    
     function saveState() {
         // ★ 操作履歴の自動記録
         if (!isHistoryAction) {
@@ -230,20 +230,6 @@
             }
         }
 
-        idbSet("app_state", state).then(() => {
-            setStatus("Saved");
-        }).catch(err => {
-            console.warn("[JS Code Stock] IndexedDB save failed, fallback to local:", err);
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-                setStatus("Saved");
-            } catch (e) {
-                setStatus("Save failed");
-            }
-        });
-    }
-
-    function saveState() {
         idbSet("app_state", state).then(() => {
             setStatus("Saved");
         }).catch(err => {
