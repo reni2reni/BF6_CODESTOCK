@@ -1207,13 +1207,12 @@
             const treeNav = document.createElement("div");
             treeNav.className = "jcs-tree-nav";
 
-            if (showTreeNav) {
-                const treeNav = document.createElement("div");
-                treeNav.className = "jcs-tree-nav";
+            for (let p = 0; p < state.parentCount; p++) {
+                const pName = state.parents[p] || ("P" + p);
 
-                for (let p = 0; p < state.parentCount; p++) {
-                    const pName = state.parents[p] || ("P" + p);
-                    if (String(pName).trim() === "-") continue;
+                // 親の名称が "-" の場合、親も配下の子も左ツリーでは丸ごと非表示
+                if (String(pName).trim() === "-") {
+                    continue;
                 }
 
                 // 親項目 [ 親A ]
@@ -1234,8 +1233,11 @@
                 const cList = state.children[p] || [];
                 for (let c = 0; c < state.childCount; c++) {
                     const cName = cList[c] || (state.parents[p] + "-" + (c + 1));
-                    if (String(cName).trim() === "-") continue;
-                    
+
+                    // 子の名称が "-" の場合、その子項目のみ左ツリーで非表示
+                    if (String(cName).trim() === "-") {
+                        continue;
+                    }
 
                     const cEl = document.createElement("div");
                     const isActive = (state.filterParent === p && state.filterChild[p] === c);
@@ -1253,9 +1255,10 @@
                     treeNav.appendChild(cEl);
                 }
             }
+
             mainPane.appendChild(treeNav);
 
-            // ★ 記憶していたスクロール位置を瞬時に復元して固定
+            // ★ 記憶していたスクロール位置を瞬時に復元して固定（一番上への巻き戻りを完全防止）
             treeNav.scrollTop = savedTreeScrollTop;
             requestAnimationFrame(() => {
                 if (treeNav) treeNav.scrollTop = savedTreeScrollTop;
