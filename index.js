@@ -2015,117 +2015,74 @@
 
             const startX = e.clientX, startY = e.clientY;
             let isDragging = false;
+            let createdBlock = null;
+            let ws = null;
 
             const onMouseMove = (moveEvent) => {
-                if (isDragging) return;
-
                 if (!panel) return;
                 const rect = panel.getBoundingClientRect();
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
                     moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
 
-                // パネル外へ出た瞬間に発動
-                if (isOutside) {
+                // パネル外へ出た瞬間にブロック生成
+                if (!isDragging && isOutside) {
                     isDragging = true;
-                    cleanup();
-
-                    const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
-                    if (!ws) return;
-
-                    // 1. ブロックインスタンスを生成
-                    const createdBlock = createBlockInstance(ws, item);
-                    if (!createdBlock) return;
-
-                    // 2. マウスの初期座標へオフセット配置して描画
-                    const coords = getWorkspaceCoords(ws, moveEvent);
-                    const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
-                    if (typeof createdBlock.moveTo === "function") {
-                        createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
-                    }
-                    if (typeof createdBlock.render === "function") {
-                        createdBlock.render();
+                    ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+                    if (ws) {
+                        createdBlock = createBlockInstance(ws, item);
                     }
 
-                    // 3. パネルの状態制御
+                    // ★ 非固定（🔓️）時は、ウィンドウの枠を出た瞬間に即座にパネルを閉じる！
                     if (isTempExpanded) {
                         isTempExpanded = false;
                         isCollapsed = true;
                         renderPanel();
                     } else if (!isPinned) {
-                        // ★ 非固定（🔓️）時は、ウィンドウから出た瞬間に即座にパネルを閉じる！
                         closePanel();
                     }
+                }
 
-                    // 4. 描画完了を待って（80ms）、システムで確実に掴み直して通常ドラッグへ移行
-                    setTimeout(() => {
-                        if (!createdBlock || createdBlock.disposed) return;
-                        const svg = createdBlock.getSvgRoot && createdBlock.getSvgRoot();
-                        if (!svg) return;
-
-                        const blockRect = svg.getBoundingClientRect();
-                        const grabX = blockRect.left + 20;
-                        const grabY = blockRect.top + 15;
-
-                        const fakeEvent = {
-                            clientX: grabX,
-                            clientY: grabY,
-                            screenX: grabX,
-                            screenY: grabY,
-                            button: 0,
-                            buttons: 1,
-                            pointerId: 1,
-                            pointerType: "mouse",
-                            target: svg,
-                            type: "pointerdown",
-                            preventDefault: () => { },
-                            stopPropagation: () => { }
-                        };
-
-                        try {
-                            if (ws.currentGesture_) {
-                                ws.currentGesture_.cancel();
-                            }
-
-                            const gesture = ws.getGesture ? ws.getGesture(fakeEvent) : null;
-                            if (gesture) {
-                                gesture.setStartBlock(createdBlock);
-                                gesture.handleBlockStart(fakeEvent, createdBlock);
-
-                                if (typeof gesture.startDraggingBlock === "function") {
-                                    gesture.startDraggingBlock();
-                                } else if (typeof gesture.startDraggingBlock_ === "function") {
-                                    gesture.startDraggingBlock_();
-                                }
-                            }
-
-                            svg.dispatchEvent(new PointerEvent("pointerdown", {
-                                bubbles: true,
-                                cancelable: true,
-                                view: window,
-                                clientX: grabX,
-                                clientY: grabY,
-                                button: 0,
-                                buttons: 1,
-                                pointerId: 1
-                            }));
-                        } catch (err) {
-                            console.warn("[JS Code Stock] Re-grab failed:", err);
-                        }
-                    }, 80);
+                // ★ マウスカーソルにブロックをぴったり吸着追従（途中で落とさない）
+                if (isDragging && createdBlock && ws) {
+                    const coords = getWorkspaceCoords(ws, moveEvent);
+                    const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+                    if (typeof createdBlock.moveTo === "function") {
+                        createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
+                    }
+                    if (typeof createdBlock.select === "function") {
+                        createdBlock.select();
+                    }
                 }
             };
 
-            const onMouseUp = () => {
-                cleanup();
-                if (!isDragging) {
+            const onMouseUp = (upEvent) => {
+                // ★ マウスを離した瞬間にリスナーを完全解除（カーソルに張り付いて離れなくなるのを完全防止）
+                document.removeEventListener("mousemove", onMouseMove);
+                document.removeEventListener("mouseup", onMouseUp);
+
+                if (isDragging) {
+                    if (createdBlock && ws) {
+                        // ドロップした最終位置に配置
+                        const coords = getWorkspaceCoords(ws, upEvent);
+                        const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+                        if (typeof createdBlock.moveTo === "function") {
+                            createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
+                        }
+                        if (typeof createdBlock.render === "function") createdBlock.render();
+
+                        // ★ 離した位置で、近くのブロックの中や間に自動でパチンと結合！
+                        autoConnectBlock(createdBlock);
+
+                        if (typeof createdBlock.select === "function") createdBlock.select();
+                    }
+
+                    if (!isPinned) {
+                        closePanel();
+                    }
+                } else {
                     // 移動せずクリックした場合はスマート配置処理を実行
                     handleItemClick(item, nameEl);
                 }
-            };
-
-            const cleanup = () => {
-                document.removeEventListener("mousemove", onMouseMove);
-                document.removeEventListener("mouseup", onMouseUp);
             };
 
             document.addEventListener("mousemove", onMouseMove);
