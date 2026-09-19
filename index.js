@@ -1255,8 +1255,9 @@
         }
 
         panel.classList.remove("collapsed");
-        if (state.windowBounds && state.windowBounds.height) {
-            panel.style.height = state.windowBounds.height + "px";
+        if (state.windowBounds) {
+            if (state.windowBounds.width) panel.style.width = state.windowBounds.width + "px";
+            if (state.windowBounds.height) panel.style.height = state.windowBounds.height + "px";
         } else if (savedPanelHeight) {
             panel.style.height = savedPanelHeight;
         }
@@ -2900,6 +2901,11 @@
                 if (hasMoved) {
                     saveWindowBounds();
                 } else {
+                    // ★ 展開状態から最小化する直前に、現在の幅・高さを確実に保存
+                    if (!isCollapsed) {
+                        saveWindowBounds();
+                    }
+
                     // ★ 最小化する直前のツリースクロール位置を保護
                     const currentTree = panel.querySelector(".jcs-tree-nav");
                     if (currentTree && currentTree.scrollTop > 0) {
@@ -2907,9 +2913,6 @@
                     }
 
                     isCollapsed = !isCollapsed;
-                    if (isCollapsed && panel.style.height && panel.style.height !== "auto") {
-                        savedPanelHeight = panel.style.height;
-                    }
                     renderPanel();
                 }
             };
@@ -2928,6 +2931,17 @@
             panel = document.createElement("div");
             panel.id = "js-code-stock-panel";
             document.body.appendChild(panel);
+
+            // ★ リサイズ操作を検知して幅・高さを自動保存
+            let resizeTimer = null;
+            const ro = new ResizeObserver(() => {
+                if (isCollapsed || panel.style.display === "none") return;
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    saveWindowBounds();
+                }, 150);
+            });
+            ro.observe(panel);
         }
 
         panel.style.display = "flex";
