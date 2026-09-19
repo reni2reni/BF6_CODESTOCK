@@ -1348,6 +1348,8 @@
         titleEl.style.flex = "1";
         const clearTitle = makeButton("✕", () => {
             titleEl.value = "";
+            pendingIconCoord = null; // ★ アイコンデータも初期化
+            updateInputIconPreview(); // ★ プレビューも消去
             titleEl.focus();
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
@@ -1385,6 +1387,9 @@
             if (inputHidden) {
                 editingIdValue = null;
                 lastEditingId = null;
+                pendingIconCoord = null; // ★ 閉じた時にアイコンもリセット
+                pendingBlockTitle = null;
+                pendingBlockBody = null;
             }
             renderPanel();
             if (!inputHidden && titleEl) titleEl.focus();
@@ -2560,6 +2565,7 @@
             inputIconPreview.style.backgroundRepeat = "no-repeat";
         } else {
             inputIconPreview.style.display = "none";
+            inputIconPreview.style.backgroundImage = "none"; // ★ アイコン画像を明示的に消去
         }
     }
 
@@ -2612,50 +2618,67 @@
     }
 
     function addItem() {
-        const title = titleEl && titleEl.value.trim();
-        const body = bodyEl ? bodyEl.value : "";
-        if (!title) return setStatus("Code name is required");
+        try {
+            const title = titleEl && titleEl.value.trim();
+            const body = bodyEl ? bodyEl.value : "";
+            if (!title) return setStatus("Code name is required");
 
-        if (editingIdValue) {
-            const item = state.items.find(x => x.id === editingIdValue);
-            if (item) {
-                item.title = title;
-                item.body = body;
-                item.parent = state.filterParent;
-                item.child = state.filterChild[state.filterParent];
-                item.color = state.currentColor;
+            const p = state.filterParent || 0;
+            const c = (state.filterChild && state.filterChild[p]) || 0;
+
+            if (editingIdValue) {
+                // EDIT（UPDATE更新）時
+                const item = state.items.find(x => x && x.id === editingIdValue);
+                if (item) {
+                    item.title = title;
+                    item.body = body;
+                    item.parent = p;
+                    item.child = c;
+                    item.color = state.currentColor || 0;
+                    if (pendingIconCoord) {
+                        item.iconCoord = pendingIconCoord;
+                    }
+                }
+            } else {
+                // ADD（新規追加）時
+                state.items.push({
+                    id: uid(),
+                    title: title,
+                    body: body,
+                    parent: p,
+                    child: c,
+                    order: nextOrder(),
+                    color: state.currentColor || 0,
+                    iconCoord: pendingIconCoord || null
+                });
+                scrollToBottomOnRender = true;
             }
-        } else {
-            state.items.push({
-                id: uid(),
-                title,
-                body,
-                parent: state.filterParent,
-                child: state.filterChild[state.filterParent],
-                order: nextOrder(),
-                color: state.currentColor,
-                iconCoord: pendingIconCoord || null
-            });
-            scrollToBottomOnRender = true;
+        } catch (err) {
+            console.error("[JS Code Stock] addItem error:", err);
         }
 
-        // ★ 1. 状態の完全初期化
+        // ★ 1. アイコン・編集ID・入力モードを完全に初期化
         pendingIconCoord = null;
         editingIdValue = null;
         lastEditingId = null;
         interactionMode = "normal";
         pendingBlockData = null;
-        saveState();
+        pendingBlockTitle = null;
+        pendingBlockBody = null;
 
-        // ★ 2. 入力欄を完全にクリア
+        // ★ 2. 入力欄・プレビューアイコンを完全に消去
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
-        if (inputIconPreview) inputIconPreview.style.display = "none";
+        if (inputIconPreview) {
+            inputIconPreview.style.display = "none";
+            inputIconPreview.style.backgroundImage = "none";
+        }
 
-        // ★ 3. 入力欄を確実に閉じる
+        // ★ 3. 入力欄を閉じる
         inputHidden = true;
 
-        // 最小化から一時展開されていた場合
+        try { saveState(); } catch (_) { }
+
         if (isTempExpanded) {
             isTempExpanded = false;
             isCollapsed = true;
@@ -2663,7 +2686,6 @@
             return;
         }
 
-        // アンロック（🔓️）状態ならパネルごと閉じる
         if (!isPinned) {
             closePanel();
             return;
@@ -2673,10 +2695,10 @@
     }
 
     function nextOrder() {
-        if (!Array.isArray(state.items)) return 0;
-        const p = state.filterParent || 0;
-        const c = (state.filterChild && state.filterChild[p]) || 0;
-        const group = state.items.filter(x => x && x.parent === p && x.child === c);
+        const group = state.items.filter(x =>
+            x.parent === state.filterParent &&
+            x.child === state.filterChild[state.filterParent]
+        );
         return group.length;
     }
 
@@ -2797,10 +2819,19 @@
     }
 
     function cancelEdit() {
+        // ★ アイコン・一時データを確実にリセット
+        pendingIconCoord = null;
+        pendingBlockTitle = null;
+        pendingBlockBody = null;
         editingIdValue = null;
         lastEditingId = null;
+
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
+        if (inputIconPreview) {
+            inputIconPreview.style.display = "none";
+            inputIconPreview.style.backgroundImage = "none";
+        }
         inputHidden = true;
 
         if (interactionMode === "blockEntry") {
