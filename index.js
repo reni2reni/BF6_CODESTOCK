@@ -153,7 +153,7 @@
             if (Array.isArray(saved.children)) state.children = saved.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
             if (Array.isArray(saved.palette) && saved.palette.length === COLOR_COUNT) state.palette = saved.palette;
             if (!Array.isArray(state.items)) state.items = [];
-            currentSnapshot = getSnapshotString();
+
             if (panel) renderPanel();
         } catch (e) {
             console.error("[JS Code Stock] load failed", e);
@@ -181,27 +181,6 @@
         });
     }
 
-    // ★ 変更があった瞬間にリアルタイムでボタンの見た目を更新する関数
-    function updateHistoryButtons() {
-        if (!panel) return;
-        const undoBtn = panel.querySelector(".jcs-history-undo");
-        const redoBtn = panel.querySelector(".jcs-history-redo");
-
-        if (undoBtn) {
-            const canUndo = (undoStack.length > 0);
-            undoBtn.disabled = !canUndo;
-            undoBtn.className = "jcs-history-btn jcs-history-undo" + (canUndo ? "" : " disabled");
-            undoBtn.title = canUndo ? `Undo (元に戻す) [残り${undoStack.length}回]` : "Undo (履歴なし)";
-        }
-
-        if (redoBtn) {
-            const canRedo = (redoStack.length > 0);
-            redoBtn.disabled = !canRedo;
-            redoBtn.className = "jcs-history-btn jcs-history-redo" + (canRedo ? "" : " disabled");
-            redoBtn.title = canRedo ? `Redo (やり直す) [残り${redoStack.length}回]` : "Redo (履歴なし)";
-        }
-    }
-
     // 元に戻す（Undo）
     function doUndo() {
         if (undoStack.length === 0) return;
@@ -217,7 +196,6 @@
         renderPanel();
         setStatus("Undo");
         isHistoryAction = false;
-        updateHistoryButtons();
     }
 
     // やり直す（Redo）
@@ -235,11 +213,11 @@
         renderPanel();
         setStatus("Redo");
         isHistoryAction = false;
-        updateHistoryButtons();
     }
 
+    
     function saveState() {
-        // ★ 操作履歴の即時自動記録
+        // ★ 操作履歴の自動記録
         if (!isHistoryAction) {
             const nextSnap = getSnapshotString();
             if (currentSnapshot === null) {
@@ -248,12 +226,9 @@
                 undoStack.push(currentSnapshot);
                 if (undoStack.length > MAX_HISTORY) undoStack.shift();
                 currentSnapshot = nextSnap;
-                redoStack = []; // 新しい操作が行われたらRedoをリセット
+                redoStack = []; // 新しい操作が行われたらRedoスタックはクリア
             }
         }
-
-        // ★ 変更があったその瞬間に即座にボタン表示を更新！
-        updateHistoryButtons();
 
         idbSet("app_state", state).then(() => {
             setStatus("Saved");
@@ -267,7 +242,6 @@
             }
         });
     }
-
 
     function ensureStateIntegrity() {
         state.parentCount = Math.max(1, Math.min(8, state.parentCount || 4));
@@ -1290,18 +1264,18 @@
         // ★ Undo ボタン（↩️）
         const canUndo = (undoStack.length > 0);
         const undoBtn = makeButton("↩️", () => {
-            if (undoStack.length > 0) doUndo();
-        }, "jcs-history-btn jcs-history-undo" + (canUndo ? "" : " disabled"));
+            if (canUndo) doUndo();
+        }, "jcs-history-btn" + (canUndo ? "" : " disabled"));
         undoBtn.title = canUndo ? `Undo (元に戻す) [残り${undoStack.length}回]` : "Undo (履歴なし)";
-        undoBtn.disabled = !canUndo;
+        if (!canUndo) undoBtn.disabled = true;
 
         // ★ Redo ボタン（↪️）
         const canRedo = (redoStack.length > 0);
         const redoBtn = makeButton("↪️", () => {
-            if (redoStack.length > 0) doRedo();
-        }, "jcs-history-btn jcs-history-redo" + (canRedo ? "" : " disabled"));
+            if (canRedo) doRedo();
+        }, "jcs-history-btn" + (canRedo ? "" : " disabled"));
         redoBtn.title = canRedo ? `Redo (やり直す) [残り${redoStack.length}回]` : "Redo (履歴なし)";
-        redoBtn.disabled = !canRedo;
+        if (!canRedo) redoBtn.disabled = true;
 
         // ⚙️ 設定ボタン
         const gearBtn = makeButton("⚙️", (e) => {
@@ -1321,6 +1295,7 @@
         const close = makeButton("✕", closePanel, "jcs-close");
         close.title = "Close";
 
+        // ★ 並び順：↩️ ↪️ ⚙️ 🔒️ ✕
         tools.append(undoBtn, redoBtn, gearBtn, pinBtn, close);
         head.append(ttl, tools);
 
@@ -1447,7 +1422,7 @@
 
         inputSection.appendChild(colorTabs);
         inputSection.appendChild(iconBar); // ★ カラーバーの真下にアイコン一覧を配置
-
+        
         const inputSection = document.createElement("div");
         inputSection.className = "jcs-input-section";
         const inputRow = document.createElement("div");
