@@ -522,22 +522,7 @@
 #js-code-stock-panel .jcs-tag-badge{font-size:10px;color:#777;background:#1a1a1a;padding:1px 4px;border-radius:2px;margin-left:6px;border:1px solid #333}
 #js-code-stock-panel .jcs-history-btn{font-size:12px;padding:3px 5px;background:#333}
 #js-code-stock-panel .jcs-history-btn.disabled{opacity:0.3;cursor:not-allowed;filter:grayscale(1)}
-#js-code-stock-panel .jcs-icon-bar{display:flex;gap:2px;background:#181818;border:1px solid #2a2a2a;border-radius:3px;padding:3px 6px;margin-bottom:4px;overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;height:34px;box-sizing:border-box}
-#js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar{height:5px!important}
-#js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-track{background:#141414}
-#js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-thumb{background:#444;border-radius:3px}
-#js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-thumb:hover{background:#666}
 
-/* アイコンボタン（22px ＆ 左右2pxマージン） */
-#js-code-stock-panel .jcs-icon-btn{width:22px;min-width:22px;height:22px;border-radius:2px;border:1px solid #383838;background-color:#222;cursor:pointer;flex-shrink:0;margin:0 2px;transition:transform 0.1s,border-color 0.1s}
-#js-code-stock-panel .jcs-icon-btn:hover{transform:scale(1.15);border-color:#4da3ff;z-index:2}
-
-/* インライン画像アイコン（入力欄やリスト内で文字と一緒に並ぶアイコン：22px） */
-#js-code-stock-panel .jcs-inline-icon{display:inline-block;width:22px;height:22px;vertical-align:middle;margin:0 2px;flex-shrink:0;border-radius:2px}
-
-/* リッチ名称入力欄（文字・アイコン混在対応） */
-#js-code-stock-panel .jcs-title-input{width:100%;height:30px;box-sizing:border-box;padding:3px 6px;background:#2a2a2a;border:none;color:#fff;font-size:16px;font-family:sans-serif;outline:none;overflow-x:auto;white-space:nowrap;display:flex;align-items:center;line-height:22px}
-#js-code-stock-panel .jcs-title-input:empty:before{content:attr(placeholder);color:#888;pointer-events:none}
 `;
         document.head.appendChild(style);
     }
@@ -737,103 +722,48 @@
     }
 
 
-    const ICON_SIZE = 18; // アイコンの一辺サイズ(px)
+    const ICON_SIZE = 20; // アイコンの一辺サイズ(px)
     let pendingIconCoord = null; // 新規登録時に一時保持するアイコン座標
 
     // ブロック先頭のアイコン画像を抽出
-    // ブロック内の全アイコン画像を順番通りにすべて抽出（2個以上あっても全取得）
-    function extractAllBlockIcons(block) {
-        if (!block) return [];
-        const icons = [];
-        const seen = new Set();
-
-        // 1. inputList 内の FieldImage を走査
+    function extractBlockIcon(block) {
+        if (!block) return null;
         if (block.inputList) {
             for (const input of block.inputList) {
                 if (input.fieldRow) {
                     for (const field of input.fieldRow) {
-                        let src = null;
-                        if (field && field.src_) src = field.src_;
-                        else if (field && typeof field.getValue === "function") {
+                        if (field && field.src_) return field.src_;
+                        if (field && typeof field.getValue === "function") {
                             const v = field.getValue();
                             if (typeof v === "string" && (v.startsWith("data:image") || v.includes(".svg") || v.includes(".png"))) {
-                                src = v;
+                                return v;
                             }
                         }
-                        if (src && !seen.has(src)) {
-                            seen.add(src);
-                            icons.push(src);
-                        }
                     }
                 }
             }
         }
-
-        // 2. block.getSvgRoot() 内の全 <image> と <use> を走査
         const svgRoot = block.getSvgRoot && block.getSvgRoot();
         if (svgRoot) {
-            svgRoot.querySelectorAll("image").forEach(img => {
+            const img = svgRoot.querySelector("image");
+            if (img) {
                 const href = img.getAttribute("href") || img.getAttribute("xlink:href");
-                if (href && !seen.has(href)) {
-                    seen.add(href);
-                    icons.push(href);
-                }
-            });
-            svgRoot.querySelectorAll("use").forEach(use => {
+                if (href) return href;
+            }
+            const use = svgRoot.querySelector("use");
+            if (use) {
                 const ref = use.getAttribute("href") || use.getAttribute("xlink:href");
-                if (ref && ref.startsWith("#") && !seen.has(ref)) {
+                if (ref && ref.startsWith("#")) {
                     const sym = document.querySelector(ref);
                     if (sym) {
-                        seen.add(ref);
                         const vb = sym.getAttribute("viewBox") || "0 0 24 24";
                         const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">${sym.innerHTML}</svg>`;
-                        icons.push("data:image/svg+xml;utf8," + encodeURIComponent(svgStr));
+                        return "data:image/svg+xml;utf8," + encodeURIComponent(svgStr);
                     }
                 }
-            });
-        }
-
-        return icons;
-    }
-
-    // 22pxのインラインアイコンHTML文字列を生成
-    function createInlineIconHtml(iconCoord) {
-        if (!iconCoord || !state.iconAtlas || !state.iconAtlas.spriteUrl) return "";
-        return `<span class="jcs-inline-icon" contenteditable="false" style="display:inline-block;width:22px;height:22px;vertical-align:middle;margin:0 2px;flex-shrink:0;border-radius:2px;background-image:url('${state.iconAtlas.spriteUrl}');background-position:-${iconCoord.x}px 0px;background-repeat:no-repeat;"></span>`;
-    }
-
-    // カーソル位置に22pxアイコン画像を直接挿入
-    function insertIconAtCursor(iconCoord) {
-        if (!titleEl) return;
-        titleEl.focus();
-
-        const iconSpan = document.createElement("span");
-        iconSpan.className = "jcs-inline-icon";
-        iconSpan.contentEditable = "false";
-        iconSpan.style.width = "22px";
-        iconSpan.style.height = "22px";
-        iconSpan.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
-        iconSpan.style.backgroundPosition = `-${iconCoord.x}px 0px`;
-        iconSpan.style.backgroundRepeat = "no-repeat";
-
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-            let range = sel.getRangeAt(0);
-            if (!titleEl.contains(range.commonAncestorContainer)) {
-                range = document.createRange();
-                range.selectNodeContents(titleEl);
-                range.collapse(false);
             }
-            range.deleteContents();
-            range.insertNode(iconSpan);
-
-            range.setStartAfter(iconSpan);
-            range.setEndAfter(iconSpan);
-            sel.removeAllRanges();
-            sel.addRange(range);
-        } else {
-            titleEl.appendChild(iconSpan);
         }
+        return null;
     }
 
     // アイコンをスプライトシート（アトラス画像）に統合して座標を返す（重複時は既存座標を返して容量節約）
@@ -858,109 +788,6 @@
             img.onload = () => {
                 const idx = atlas.sources.length;
                 atlas.sources.push(iconSrc);
-
-                const totalWidth = atlas.sources.length * ICON_SIZE;
-                const canvas = document.createElement("canvas");
-                canvas.width = totalWidth;
-                canvas.height = ICON_SIZE;
-                const ctx = canvas.getContext("2d");
-
-                if (atlas.spriteUrl) {
-                    const oldSprite = new Image();
-                    oldSprite.onload = () => {
-                        ctx.drawImage(oldSprite, 0, 0);
-                        ctx.drawImage(img, idx * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE);
-                        atlas.spriteUrl = canvas.toDataURL("image/png");
-                        saveState();
-                        resolve({ x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                    };
-                    oldSprite.onerror = () => {
-                        ctx.drawImage(img, idx * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE);
-                        atlas.spriteUrl = canvas.toDataURL("image/png");
-                        saveState();
-                        resolve({ x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                    };
-                    oldSprite.src = atlas.spriteUrl;
-                } else {
-                    ctx.drawImage(img, 0, 0, ICON_SIZE, ICON_SIZE);
-                    atlas.spriteUrl = canvas.toDataURL("image/png");
-                    saveState();
-                    resolve({ x: 0, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                }
-            };
-            img.onerror = () => resolve(null);
-            img.src = iconSrc;
-        });
-    }
-
-    // テキストボックスのカーソル位置に文字を挿入するヘルパー
-    function insertTextAtCursor(inputEl, textToInsert) {
-        if (!inputEl) return;
-        const start = inputEl.selectionStart || 0;
-        const end = inputEl.selectionEnd || 0;
-        const val = inputEl.value;
-        inputEl.value = val.substring(0, start) + textToInsert + val.substring(end);
-        inputEl.selectionStart = inputEl.selectionEnd = start + textToInsert.length;
-        inputEl.focus();
-    }
-
-    // テキスト欄の現在のカーソル位置にアイコン画像そのものを埋め込む
-    function insertIconAtCursor(iconCoord) {
-        if (!titleEl) return;
-        titleEl.focus();
-
-        const iconSpan = document.createElement("span");
-        iconSpan.className = "jcs-inline-icon";
-        iconSpan.contentEditable = "false"; // 画像として1文字扱いにする
-        iconSpan.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
-        iconSpan.style.backgroundPosition = `-${iconCoord.x}px -${iconCoord.y}px`;
-        iconSpan.style.backgroundRepeat = "no-repeat";
-        iconSpan.dataset.iconCoord = JSON.stringify(iconCoord);
-
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-            let range = sel.getRangeAt(0);
-            if (!titleEl.contains(range.commonAncestorContainer)) {
-                range = document.createRange();
-                range.selectNodeContents(titleEl);
-                range.collapse(false);
-            }
-            range.deleteContents();
-            range.insertNode(iconSpan);
-
-            // カーソルを挿入したアイコンの直後に移動
-            range.setStartAfter(iconSpan);
-            range.setEndAfter(iconSpan);
-            sel.removeAllRanges();
-            sel.addRange(range);
-        } else {
-            titleEl.appendChild(iconSpan);
-        }
-    }
-    
-    // アイコン追加時に名前も一緒に保存するように修正
-    function getOrAddIconToAtlas(iconSrc, iconName) {
-        if (!iconSrc) return Promise.resolve(null);
-        if (!state.iconAtlas) {
-            state.iconAtlas = { spriteUrl: null, sources: [], names: [] };
-        }
-        if (!Array.isArray(state.iconAtlas.names)) {
-            state.iconAtlas.names = [];
-        }
-        const atlas = state.iconAtlas;
-        const existingIdx = atlas.sources.indexOf(iconSrc);
-
-        if (existingIdx !== -1) {
-            return Promise.resolve({ x: existingIdx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-        }
-
-        return new Promise(resolve => {
-            const img = new Image();
-            if (!iconSrc.startsWith("data:")) img.crossOrigin = "anonymous";
-            img.onload = () => {
-                const idx = atlas.sources.length;
-                atlas.sources.push(iconSrc);
-                atlas.names.push(iconName || ("Icon" + (idx + 1)));
 
                 const totalWidth = atlas.sources.length * ICON_SIZE;
                 const canvas = document.createElement("canvas");
@@ -1492,60 +1319,6 @@
             colorTabs.appendChild(b);
         });
 
-        // --- 2. アイコン一覧バー（横スクロール） ---
-        const iconBar = document.createElement("div");
-        iconBar.className = "jcs-icon-bar";
-
-        // ★ マウスホイールを上下に回すと左右に水平スクロール
-        iconBar.addEventListener("wheel", (e) => {
-            if (e.deltaY !== 0) {
-                e.preventDefault();
-                iconBar.scrollLeft += e.deltaY;
-            }
-        }, { passive: false });
-
-        if (state.iconAtlas && state.iconAtlas.spriteUrl && Array.isArray(state.iconAtlas.sources) && state.iconAtlas.sources.length > 0) {
-            state.iconAtlas.sources.forEach((src, idx) => {
-                const btn = document.createElement("div");
-                btn.className = "jcs-icon-btn";
-                btn.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
-                btn.style.backgroundPosition = `-${idx * ICON_SIZE}px 0px`;
-                btn.style.backgroundRepeat = "no-repeat";
-
-                const iconName = (state.iconAtlas.names && state.iconAtlas.names[idx]) || ("Icon" + (idx + 1));
-                btn.title = `Click to insert [${iconName}] image at cursor`;
-
-                // ★ クリック時：名称欄のカーソル位置にアイコン画像そのものを埋め込み！
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    const coord = { x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE };
-                    pendingIconCoord = coord;
-
-                    if (editingIdValue) {
-                        const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
-                        if (item) item.iconCoord = coord;
-                    }
-
-                    // 名称欄左のメインアイコン表示を更新
-                    updateInputIconPreview();
-
-                    // ★ カーソル位置にアイコン画像そのものを埋め込み挿入！
-                    insertIconAtCursor(coord);
-                };
-
-                iconBar.appendChild(btn);
-            });
-        } else {
-            const emptyGuide = document.createElement("span");
-            emptyGuide.textContent = "No icons (Blocks auto-register icons)";
-            emptyGuide.style.fontSize = "10px";
-            emptyGuide.style.color = "#666";
-            emptyGuide.style.lineHeight = "24px";
-            emptyGuide.style.paddingLeft = "6px";
-            iconBar.appendChild(emptyGuide);
-        }
-
-        // --- 入力セクション ---
         const inputSection = document.createElement("div");
         inputSection.className = "jcs-input-section";
         const inputRow = document.createElement("div");
@@ -1559,39 +1332,38 @@
         titleWrap.style.alignItems = "center";
         titleWrap.style.position = "relative";
 
-        // ★ 左の別枠は撤廃し、入力欄そのもの（titleEl）を作成
-        titleEl = document.createElement("div");
-        titleEl.className = "jcs-title-input";
-        titleEl.contentEditable = "true";
-        titleEl.setAttribute("placeholder", "🏷️Code name");
-        titleEl.style.flex = "1";
+        // ★ 名称入力欄の左に表示するアイコンプレビュー枠
+        inputIconPreview = document.createElement("div");
+        inputIconPreview.className = "jcs-input-icon-preview";
+        inputIconPreview.style.width = "20px";
+        inputIconPreview.style.height = "20px";
+        inputIconPreview.style.flexShrink = "0";
+        inputIconPreview.style.marginRight = "6px";
+        inputIconPreview.style.borderRadius = "2px";
+        inputIconPreview.style.display = "none";
+        titleWrap.appendChild(inputIconPreview);
 
+        titleEl = document.createElement("input");
+        titleEl.placeholder = "🏷️Code name";
+        titleEl.style.flex = "1";
         const clearTitle = makeButton("✕", () => {
-            titleEl.innerHTML = "";
+            titleEl.value = "";
             titleEl.focus();
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
-
+        updateInputIconPreview();
         const bodyWrap = document.createElement("div");
         bodyWrap.className = "jcs-input-wrapper";
         bodyEl = document.createElement("textarea");
         bodyEl.placeholder = "📝Code body";
-
-        // ★ 貼り付け時に "type" 名を自動で名称にする処理を完全復活！
         bodyEl.addEventListener("paste", (e) => {
             const clipboardData = (e.clipboardData || window.clipboardData).getData('text');
-            const currentTitleText = titleEl ? titleEl.textContent.trim() : "";
-            if (currentTitleText !== "") return; // 既に文字があれば上書きしない
-
+            if (titleEl.value.trim() !== "") return;
             try {
                 const data = JSON.parse(clipboardData);
-                if (data.type) {
-                    // ★ リッチ入力欄にブロックタイプ名を自動入力！
-                    titleEl.innerHTML = data.type;
-                }
+                if (data.type) titleEl.value = data.type;
             } catch (_) { }
         });
-
         const clearBody = makeButton("✕", () => {
             bodyEl.value = "";
             bodyEl.focus();
@@ -1620,12 +1392,11 @@
         toggle.id = "jcs-toggle-input";
         inputSection.appendChild(toggle);
 
-        // ★ 閉じる時はカラーバー・アイコンバー・入力欄をまとめて隠す
         if (inputHidden) {
             inputRow.classList.add("jcs-hidden");
             colorTabs.classList.add("jcs-hidden");
-            iconBar.classList.add("jcs-hidden");
         } else if (hasEditingId()) {
+            // ★ 安全なID比較でアイテムを確実に特定
             const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
             if (item) {
                 titleEl.value = item.title || "";
@@ -1819,7 +1590,7 @@
         statusEl.textContent = "Ready";
         foot.appendChild(statusEl);
 
-        container.append(head, parentTabs, childTabs, colorTabs, iconBar, inputSection, filter, bodyHead, mainPane, foot);
+        container.append(head, parentTabs, childTabs, colorTabs, inputSection, filter, bodyHead, mainPane, foot);
         panel.appendChild(container);
 
         renderList();
@@ -1965,12 +1736,24 @@
             name.style.borderLeftColor = state.palette[item.color || 0];
             name.title = "Drag to place in workspace / Click to copy";
 
+            if (item.iconCoord && state.iconAtlas && state.iconAtlas.spriteUrl) {
+                const iconEl = document.createElement("div");
+                iconEl.style.width = item.iconCoord.w + "px";
+                iconEl.style.height = item.iconCoord.h + "px";
+                iconEl.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
+                iconEl.style.backgroundPosition = `-${item.iconCoord.x}px -${item.iconCoord.y}px`;
+                iconEl.style.backgroundRepeat = "no-repeat";
+                iconEl.style.flexShrink = "0";
+                iconEl.style.marginRight = "6px";
+                iconEl.style.borderRadius = "2px";
+                name.appendChild(iconEl);
+            }
+
             const titleText = document.createElement("span");
-            // ★ 文字列・埋め込まれた複数アイコン画像をそのまま22pxで表示！
-            titleText.innerHTML = item.title;
+            titleText.textContent = item.title;
             name.appendChild(titleText);
 
-            // ALL検索時のタグバッジ
+            // ★ ALL検索時は、所属しているフォルダ名バッジ（例: [A > A-1]）を表示
             if (searchScope === "ALL") {
                 const pName = state.parents[item.parent] || ("P" + item.parent);
                 const cName = (state.children[item.parent] && state.children[item.parent][item.child]) || ("C" + item.child);
@@ -2794,10 +2577,9 @@
             interactionMode = "blockEntry";
             editingIdValue = null;
             lastEditingId = null;
-            inputHidden = false;
+            inputHidden = false; // 入力パネルを開く
 
-            const bName = blockTypeName(data);
-            pendingBlockTitle = bName;
+            pendingBlockTitle = blockTypeName(data);
             pendingBlockBody = JSON.stringify(data, null, 2);
 
             if (isCollapsed) {
@@ -2808,20 +2590,17 @@
             openPanel();
             setStatus("Block copied — ADD to save, CANCEL to close");
 
-            // ★ ブロック内の全アイコンを収集し、スプライトアトラス登録後に入力欄の中に直接並べて配置！
+            // ★ アイコンをバックグラウンド取得し、完了したら即座に入力欄左にプレビュー表示
+            pendingIconCoord = null;
             try {
-                const iconSrcs = extractAllBlockIcons(block);
-                if (iconSrcs.length > 0) {
-                    Promise.all(iconSrcs.map((src, i) => getOrAddIconToAtlas(src, bName + "_ico" + (i + 1)))).then(coords => {
-                        let iconsHtml = "";
-                        coords.forEach(coord => {
-                            if (coord) iconsHtml += createInlineIconHtml(coord);
-                        });
-                        // 入力欄に [アイコン1][アイコン2]ブロック名 をセット
-                        if (titleEl) {
-                            titleEl.innerHTML = iconsHtml + bName;
-                        }
+                const iconSrc = extractBlockIcon(block);
+                if (iconSrc) {
+                    getOrAddIconToAtlas(iconSrc).then(coord => {
+                        pendingIconCoord = coord;
+                        updateInputIconPreview(); // ★ プレビューを表示！
                     }).catch(() => { });
+                } else {
+                    updateInputIconPreview();
                 }
             } catch (_) { }
 
@@ -2833,67 +2612,50 @@
     }
 
     function addItem() {
-        try {
-            // テキスト欄（またはリッチ入力欄）から文字・画像HTMLを読み取る
-            const titleHtml = titleEl ? (titleEl.innerHTML || titleEl.value || "").trim() : "";
-            const plainText = titleEl ? (titleEl.textContent || titleEl.value || "").trim() : "";
-            const body = bodyEl ? bodyEl.value : "";
-            if (!titleHtml && !plainText) return setStatus("Code name is required");
+        const title = titleEl && titleEl.value.trim();
+        const body = bodyEl ? bodyEl.value : "";
+        if (!title) return setStatus("Code name is required");
 
-            const p = state.filterParent || 0;
-            const c = (state.filterChild && state.filterChild[p]) || 0;
-
-            if (editingIdValue) {
-                // EDIT（更新）時
-                const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
-                if (item) {
-                    item.title = titleHtml;
-                    item.body = body;
-                    item.parent = p;
-                    item.child = c;
-                    item.color = state.currentColor || 0;
-                }
-            } else {
-                // 新規追加時
-                state.items.push({
-                    id: uid(),
-                    title: titleHtml,
-                    body: body,
-                    parent: p,
-                    child: c,
-                    order: nextOrder(),
-                    color: state.currentColor || 0,
-                    iconCoord: pendingIconCoord || null
-                });
-                scrollToBottomOnRender = true;
+        if (editingIdValue) {
+            const item = state.items.find(x => x.id === editingIdValue);
+            if (item) {
+                item.title = title;
+                item.body = body;
+                item.parent = state.filterParent;
+                item.child = state.filterChild[state.filterParent];
+                item.color = state.currentColor;
             }
-        } catch (err) {
-            console.error("[JS Code Stock] addItem error:", err);
+        } else {
+            state.items.push({
+                id: uid(),
+                title,
+                body,
+                parent: state.filterParent,
+                child: state.filterChild[state.filterParent],
+                order: nextOrder(),
+                color: state.currentColor,
+                iconCoord: pendingIconCoord || null
+            });
+            scrollToBottomOnRender = true;
         }
 
-        // 状態を完全リセット
+        // ★ 1. 状態の完全初期化
         pendingIconCoord = null;
         editingIdValue = null;
         lastEditingId = null;
         interactionMode = "normal";
         pendingBlockData = null;
-        pendingBlockTitle = null;
-        pendingBlockBody = null;
+        saveState();
 
-        // 入力欄を完全にクリア
-        if (titleEl) {
-            if (titleEl.innerHTML !== undefined) titleEl.innerHTML = "";
-            if (titleEl.value !== undefined) titleEl.value = "";
-        }
+        // ★ 2. 入力欄を完全にクリア
+        if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
         if (inputIconPreview) inputIconPreview.style.display = "none";
 
-        // 入力欄を閉じる
+        // ★ 3. 入力欄を確実に閉じる
         inputHidden = true;
 
-        try { saveState(); } catch (_) { }
-
-        // 一時展開されていた場合は折りたたみに戻す
+        // 最小化から一時展開されていた場合
         if (isTempExpanded) {
             isTempExpanded = false;
             isCollapsed = true;
@@ -2909,7 +2671,6 @@
 
         renderPanel();
     }
-
 
     function nextOrder() {
         if (!Array.isArray(state.items)) return 0;
