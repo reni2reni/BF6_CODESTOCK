@@ -1930,8 +1930,7 @@
             }
 
             const titleText = document.createElement("span");
-            // ★ 文字列と埋め込まれたアイコン画像をそのまま美しく表示
-            titleText.innerHTML = item.title;
+            titleText.textContent = item.title;
             name.appendChild(titleText);
 
             // ★ ALL検索時は、所属しているフォルダ名バッジ（例: [A > A-1]）を表示
@@ -2794,9 +2793,9 @@
 
     function addItem() {
         try {
-            // ★ innerHTMLでアイコン画像ごと読み取る（テキストが空でないか判定）
-            const titleHtml = titleEl ? titleEl.innerHTML.trim() : "";
-            const plainText = titleEl ? titleEl.textContent.trim() : "";
+            // テキスト欄（またはリッチ入力欄）から文字・画像HTMLを読み取る
+            const titleHtml = titleEl ? (titleEl.innerHTML || titleEl.value || "").trim() : "";
+            const plainText = titleEl ? (titleEl.textContent || titleEl.value || "").trim() : "";
             const body = bodyEl ? bodyEl.value : "";
             if (!titleHtml && !plainText) return setStatus("Code name is required");
 
@@ -2804,18 +2803,20 @@
             const c = (state.filterChild && state.filterChild[p]) || 0;
 
             if (editingIdValue) {
+                // EDIT（更新）時
                 const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
                 if (item) {
-                    item.title = titleHtml; // ★ 画像タグごと保存
+                    item.title = titleHtml;
                     item.body = body;
                     item.parent = p;
                     item.child = c;
                     item.color = state.currentColor || 0;
                 }
             } else {
+                // 新規追加時
                 state.items.push({
                     id: uid(),
-                    title: titleHtml, // ★ 画像タグごと保存
+                    title: titleHtml,
                     body: body,
                     parent: p,
                     child: c,
@@ -2825,24 +2826,33 @@
                 });
                 scrollToBottomOnRender = true;
             }
+        } catch (err) {
+            console.error("[JS Code Stock] addItem error:", err);
+        }
 
-        // ★ 1. 状態の完全初期化
+        // 状態を完全リセット
         pendingIconCoord = null;
         editingIdValue = null;
         lastEditingId = null;
         interactionMode = "normal";
         pendingBlockData = null;
-        saveState();
+        pendingBlockTitle = null;
+        pendingBlockBody = null;
 
-        // ★ 2. 入力欄を完全にクリア
-        if (titleEl) titleEl.value = "";
+        // 入力欄を完全にクリア
+        if (titleEl) {
+            if (titleEl.innerHTML !== undefined) titleEl.innerHTML = "";
+            if (titleEl.value !== undefined) titleEl.value = "";
+        }
         if (bodyEl) bodyEl.value = "";
         if (inputIconPreview) inputIconPreview.style.display = "none";
 
-        // ★ 3. 入力欄を確実に閉じる
+        // 入力欄を閉じる
         inputHidden = true;
 
-        // 最小化から一時展開されていた場合
+        try { saveState(); } catch (_) { }
+
+        // 一時展開されていた場合は折りたたみに戻す
         if (isTempExpanded) {
             isTempExpanded = false;
             isCollapsed = true;
@@ -2858,6 +2868,7 @@
 
         renderPanel();
     }
+
 
     function nextOrder() {
         if (!Array.isArray(state.items)) return 0;
