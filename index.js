@@ -522,22 +522,21 @@
 #js-code-stock-panel .jcs-tag-badge{font-size:10px;color:#777;background:#1a1a1a;padding:1px 4px;border-radius:2px;margin-left:6px;border:1px solid #333}
 #js-code-stock-panel .jcs-history-btn{font-size:12px;padding:3px 5px;background:#333}
 #js-code-stock-panel .jcs-history-btn.disabled{opacity:0.3;cursor:not-allowed;filter:grayscale(1)}
-/* アイコン一覧バー（拡大・左右マージン・横スクロール） */
-#js-code-stock-panel .jcs-icon-bar{display:flex;gap:2px;background:#181818;border:1px solid #2a2a2a;border-radius:3px;padding:4px 6px;margin-bottom:4px;overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;height:36px;box-sizing:border-box}
-#js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar{height:6px!important}
+#js-code-stock-panel .jcs-icon-bar{display:flex;gap:2px;background:#181818;border:1px solid #2a2a2a;border-radius:3px;padding:3px 6px;margin-bottom:4px;overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;height:34px;box-sizing:border-box}
+#js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar{height:5px!important}
 #js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-track{background:#141414}
 #js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-thumb{background:#444;border-radius:3px}
 #js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-thumb:hover{background:#666}
 
-/* アイコンボタン（等倍〜拡大 24px ＆ 左右2pxマージン） */
-#js-code-stock-panel .jcs-icon-btn{width:24px;min-width:24px;height:24px;border-radius:2px;border:1px solid #383838;background-color:#222;cursor:pointer;flex-shrink:0;margin:0 2px;transition:transform 0.1s,border-color 0.1s}
+/* アイコンボタン（22px ＆ 左右2pxマージン） */
+#js-code-stock-panel .jcs-icon-btn{width:22px;min-width:22px;height:22px;border-radius:2px;border:1px solid #383838;background-color:#222;cursor:pointer;flex-shrink:0;margin:0 2px;transition:transform 0.1s,border-color 0.1s}
 #js-code-stock-panel .jcs-icon-btn:hover{transform:scale(1.15);border-color:#4da3ff;z-index:2}
 
-/* インライン画像アイコン（テキスト内に埋め込まれるアイコン画像） */
-#js-code-stock-panel .jcs-inline-icon{display:inline-block;width:18px;height:18px;vertical-align:middle;margin:0 2px;flex-shrink:0;border-radius:2px}
+/* インライン画像アイコン（入力欄やリスト内で文字と一緒に並ぶアイコン：22px） */
+#js-code-stock-panel .jcs-inline-icon{display:inline-block;width:22px;height:22px;vertical-align:middle;margin:0 2px;flex-shrink:0;border-radius:2px}
 
-/* リッチテキスト名称入力欄（文字とアイコンを混在入力可能にする） */
-#js-code-stock-panel .jcs-title-input{width:100%;height:30px;box-sizing:border-box;padding:4px 6px;background:#2a2a2a;border:none;color:#fff;font-size:16px;font-family:sans-serif;outline:none;overflow-x:auto;white-space:nowrap;display:flex;align-items:center;line-height:22px}
+/* リッチ名称入力欄（文字・アイコン混在対応） */
+#js-code-stock-panel .jcs-title-input{width:100%;height:30px;box-sizing:border-box;padding:3px 6px;background:#2a2a2a;border:none;color:#fff;font-size:16px;font-family:sans-serif;outline:none;overflow-x:auto;white-space:nowrap;display:flex;align-items:center;line-height:22px}
 #js-code-stock-panel .jcs-title-input:empty:before{content:attr(placeholder);color:#888;pointer-events:none}
 `;
         document.head.appendChild(style);
@@ -738,48 +737,103 @@
     }
 
 
-    const ICON_SIZE = 20; // アイコンの一辺サイズ(px)
+    const ICON_SIZE = 18; // アイコンの一辺サイズ(px)
     let pendingIconCoord = null; // 新規登録時に一時保持するアイコン座標
 
     // ブロック先頭のアイコン画像を抽出
-    function extractBlockIcon(block) {
-        if (!block) return null;
+    // ブロック内の全アイコン画像を順番通りにすべて抽出（2個以上あっても全取得）
+    function extractAllBlockIcons(block) {
+        if (!block) return [];
+        const icons = [];
+        const seen = new Set();
+
+        // 1. inputList 内の FieldImage を走査
         if (block.inputList) {
             for (const input of block.inputList) {
                 if (input.fieldRow) {
                     for (const field of input.fieldRow) {
-                        if (field && field.src_) return field.src_;
-                        if (field && typeof field.getValue === "function") {
+                        let src = null;
+                        if (field && field.src_) src = field.src_;
+                        else if (field && typeof field.getValue === "function") {
                             const v = field.getValue();
                             if (typeof v === "string" && (v.startsWith("data:image") || v.includes(".svg") || v.includes(".png"))) {
-                                return v;
+                                src = v;
                             }
+                        }
+                        if (src && !seen.has(src)) {
+                            seen.add(src);
+                            icons.push(src);
                         }
                     }
                 }
             }
         }
+
+        // 2. block.getSvgRoot() 内の全 <image> と <use> を走査
         const svgRoot = block.getSvgRoot && block.getSvgRoot();
         if (svgRoot) {
-            const img = svgRoot.querySelector("image");
-            if (img) {
+            svgRoot.querySelectorAll("image").forEach(img => {
                 const href = img.getAttribute("href") || img.getAttribute("xlink:href");
-                if (href) return href;
-            }
-            const use = svgRoot.querySelector("use");
-            if (use) {
+                if (href && !seen.has(href)) {
+                    seen.add(href);
+                    icons.push(href);
+                }
+            });
+            svgRoot.querySelectorAll("use").forEach(use => {
                 const ref = use.getAttribute("href") || use.getAttribute("xlink:href");
-                if (ref && ref.startsWith("#")) {
+                if (ref && ref.startsWith("#") && !seen.has(ref)) {
                     const sym = document.querySelector(ref);
                     if (sym) {
+                        seen.add(ref);
                         const vb = sym.getAttribute("viewBox") || "0 0 24 24";
                         const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">${sym.innerHTML}</svg>`;
-                        return "data:image/svg+xml;utf8," + encodeURIComponent(svgStr);
+                        icons.push("data:image/svg+xml;utf8," + encodeURIComponent(svgStr));
                     }
                 }
-            }
+            });
         }
-        return null;
+
+        return icons;
+    }
+
+    // 22pxのインラインアイコンHTML文字列を生成
+    function createInlineIconHtml(iconCoord) {
+        if (!iconCoord || !state.iconAtlas || !state.iconAtlas.spriteUrl) return "";
+        return `<span class="jcs-inline-icon" contenteditable="false" style="display:inline-block;width:22px;height:22px;vertical-align:middle;margin:0 2px;flex-shrink:0;border-radius:2px;background-image:url('${state.iconAtlas.spriteUrl}');background-position:-${iconCoord.x}px 0px;background-repeat:no-repeat;"></span>`;
+    }
+
+    // カーソル位置に22pxアイコン画像を直接挿入
+    function insertIconAtCursor(iconCoord) {
+        if (!titleEl) return;
+        titleEl.focus();
+
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "jcs-inline-icon";
+        iconSpan.contentEditable = "false";
+        iconSpan.style.width = "22px";
+        iconSpan.style.height = "22px";
+        iconSpan.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
+        iconSpan.style.backgroundPosition = `-${iconCoord.x}px 0px`;
+        iconSpan.style.backgroundRepeat = "no-repeat";
+
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+            let range = sel.getRangeAt(0);
+            if (!titleEl.contains(range.commonAncestorContainer)) {
+                range = document.createRange();
+                range.selectNodeContents(titleEl);
+                range.collapse(false);
+            }
+            range.deleteContents();
+            range.insertNode(iconSpan);
+
+            range.setStartAfter(iconSpan);
+            range.setEndAfter(iconSpan);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } else {
+            titleEl.appendChild(iconSpan);
+        }
     }
 
     // アイコンをスプライトシート（アトラス画像）に統合して座標を返す（重複時は既存座標を返して容量節約）
@@ -1505,18 +1559,7 @@
         titleWrap.style.alignItems = "center";
         titleWrap.style.position = "relative";
 
-        // 名称欄左のアイコン枠
-        inputIconPreview = document.createElement("div");
-        inputIconPreview.className = "jcs-input-icon-preview";
-        inputIconPreview.style.width = "20px";
-        inputIconPreview.style.height = "20px";
-        inputIconPreview.style.flexShrink = "0";
-        inputIconPreview.style.marginRight = "6px";
-        inputIconPreview.style.borderRadius = "2px";
-        inputIconPreview.style.display = "none";
-        titleWrap.appendChild(inputIconPreview);
-
-        // ★ 文字とアイコン画像を一緒に並べて表示できるリッチ入力欄
+        // ★ 左の別枠は撤廃し、入力欄そのもの（titleEl）を作成
         titleEl = document.createElement("div");
         titleEl.className = "jcs-title-input";
         titleEl.contentEditable = "true";
@@ -1529,20 +1572,26 @@
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
 
-        updateInputIconPreview();
-
         const bodyWrap = document.createElement("div");
         bodyWrap.className = "jcs-input-wrapper";
         bodyEl = document.createElement("textarea");
         bodyEl.placeholder = "📝Code body";
+
+        // ★ 貼り付け時に "type" 名を自動で名称にする処理を完全復活！
         bodyEl.addEventListener("paste", (e) => {
             const clipboardData = (e.clipboardData || window.clipboardData).getData('text');
-            if (titleEl.value.trim() !== "") return;
+            const currentTitleText = titleEl ? titleEl.textContent.trim() : "";
+            if (currentTitleText !== "") return; // 既に文字があれば上書きしない
+
             try {
                 const data = JSON.parse(clipboardData);
-                if (data.type) titleEl.value = data.type;
+                if (data.type) {
+                    // ★ リッチ入力欄にブロックタイプ名を自動入力！
+                    titleEl.innerHTML = data.type;
+                }
             } catch (_) { }
         });
+
         const clearBody = makeButton("✕", () => {
             bodyEl.value = "";
             bodyEl.focus();
@@ -1916,24 +1965,12 @@
             name.style.borderLeftColor = state.palette[item.color || 0];
             name.title = "Drag to place in workspace / Click to copy";
 
-            if (item.iconCoord && state.iconAtlas && state.iconAtlas.spriteUrl) {
-                const iconEl = document.createElement("div");
-                iconEl.style.width = item.iconCoord.w + "px";
-                iconEl.style.height = item.iconCoord.h + "px";
-                iconEl.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
-                iconEl.style.backgroundPosition = `-${item.iconCoord.x}px -${item.iconCoord.y}px`;
-                iconEl.style.backgroundRepeat = "no-repeat";
-                iconEl.style.flexShrink = "0";
-                iconEl.style.marginRight = "6px";
-                iconEl.style.borderRadius = "2px";
-                name.appendChild(iconEl);
-            }
-
             const titleText = document.createElement("span");
-            titleText.textContent = item.title;
+            // ★ 文字列・埋め込まれた複数アイコン画像をそのまま22pxで表示！
+            titleText.innerHTML = item.title;
             name.appendChild(titleText);
 
-            // ★ ALL検索時は、所属しているフォルダ名バッジ（例: [A > A-1]）を表示
+            // ALL検索時のタグバッジ
             if (searchScope === "ALL") {
                 const pName = state.parents[item.parent] || ("P" + item.parent);
                 const cName = (state.children[item.parent] && state.children[item.parent][item.child]) || ("C" + item.child);
@@ -2757,9 +2794,10 @@
             interactionMode = "blockEntry";
             editingIdValue = null;
             lastEditingId = null;
-            inputHidden = false; // 入力パネルを開く
+            inputHidden = false;
 
-            pendingBlockTitle = blockTypeName(data);
+            const bName = blockTypeName(data);
+            pendingBlockTitle = bName;
             pendingBlockBody = JSON.stringify(data, null, 2);
 
             if (isCollapsed) {
@@ -2770,17 +2808,20 @@
             openPanel();
             setStatus("Block copied — ADD to save, CANCEL to close");
 
-            // ★ アイコンをバックグラウンド取得し、完了したら即座に入力欄左にプレビュー表示
-            pendingIconCoord = null;
+            // ★ ブロック内の全アイコンを収集し、スプライトアトラス登録後に入力欄の中に直接並べて配置！
             try {
-                const iconSrc = extractBlockIcon(block);
-                if (iconSrc) {
-                    getOrAddIconToAtlas(iconSrc).then(coord => {
-                        pendingIconCoord = coord;
-                        updateInputIconPreview(); // ★ プレビューを表示！
+                const iconSrcs = extractAllBlockIcons(block);
+                if (iconSrcs.length > 0) {
+                    Promise.all(iconSrcs.map((src, i) => getOrAddIconToAtlas(src, bName + "_ico" + (i + 1)))).then(coords => {
+                        let iconsHtml = "";
+                        coords.forEach(coord => {
+                            if (coord) iconsHtml += createInlineIconHtml(coord);
+                        });
+                        // 入力欄に [アイコン1][アイコン2]ブロック名 をセット
+                        if (titleEl) {
+                            titleEl.innerHTML = iconsHtml + bName;
+                        }
                     }).catch(() => { });
-                } else {
-                    updateInputIconPreview();
                 }
             } catch (_) { }
 
