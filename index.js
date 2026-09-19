@@ -1299,6 +1299,7 @@
         tools.append(undoBtn, redoBtn, gearBtn, pinBtn, close);
         head.append(ttl, tools);
 
+
         if (isCollapsed) {
             panel.classList.add("collapsed");
             container.appendChild(head);
@@ -1422,7 +1423,6 @@
 
         inputSection.appendChild(colorTabs);
         inputSection.appendChild(iconBar); // ★ カラーバーの真下にアイコン一覧を配置
-        
         const inputSection = document.createElement("div");
         inputSection.className = "jcs-input-section";
         const inputRow = document.createElement("div");
@@ -1499,7 +1499,6 @@
         if (inputHidden) {
             inputRow.classList.add("jcs-hidden");
             colorTabs.classList.add("jcs-hidden");
-            iconBar.classList.add("jcs-hidden"); // ★ 入力欄閉鎖時はアイコンバーも一緒に隠す
         } else if (hasEditingId()) {
             // ★ 安全なID比較でアイテムを確実に特定
             const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
