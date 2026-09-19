@@ -522,14 +522,23 @@
 #js-code-stock-panel .jcs-tag-badge{font-size:10px;color:#777;background:#1a1a1a;padding:1px 4px;border-radius:2px;margin-left:6px;border:1px solid #333}
 #js-code-stock-panel .jcs-history-btn{font-size:12px;padding:3px 5px;background:#333}
 #js-code-stock-panel .jcs-history-btn.disabled{opacity:0.3;cursor:not-allowed;filter:grayscale(1)}
-#js-code-stock-panel .jcs-icon-bar{display:flex;gap:4px;background:#181818;border:1px solid #2a2a2a;border-radius:3px;padding:3px 4px;margin-bottom:4px;overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;height:28px;box-sizing:border-box}
-#js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar{height:5px!important}
+/* アイコン一覧バー（拡大・左右マージン・横スクロール） */
+#js-code-stock-panel .jcs-icon-bar{display:flex;gap:2px;background:#181818;border:1px solid #2a2a2a;border-radius:3px;padding:4px 6px;margin-bottom:4px;overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;height:36px;box-sizing:border-box}
+#js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar{height:6px!important}
 #js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-track{background:#141414}
 #js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-thumb{background:#444;border-radius:3px}
 #js-code-stock-panel .jcs-icon-bar::-webkit-scrollbar-thumb:hover{background:#666}
 
-#js-code-stock-panel .jcs-icon-btn{width:20px;min-width:20px;height:20px;border-radius:2px;border:1px solid #383838;background-color:#222;cursor:pointer;flex-shrink:0;transition:transform 0.1s,border-color 0.1s}
+/* アイコンボタン（等倍〜拡大 24px ＆ 左右2pxマージン） */
+#js-code-stock-panel .jcs-icon-btn{width:24px;min-width:24px;height:24px;border-radius:2px;border:1px solid #383838;background-color:#222;cursor:pointer;flex-shrink:0;margin:0 2px;transition:transform 0.1s,border-color 0.1s}
 #js-code-stock-panel .jcs-icon-btn:hover{transform:scale(1.15);border-color:#4da3ff;z-index:2}
+
+/* インライン画像アイコン（テキスト内に埋め込まれるアイコン画像） */
+#js-code-stock-panel .jcs-inline-icon{display:inline-block;width:18px;height:18px;vertical-align:middle;margin:0 2px;flex-shrink:0;border-radius:2px}
+
+/* リッチテキスト名称入力欄（文字とアイコンを混在入力可能にする） */
+#js-code-stock-panel .jcs-title-input{width:100%;height:30px;box-sizing:border-box;padding:4px 6px;background:#2a2a2a;border:none;color:#fff;font-size:16px;font-family:sans-serif;outline:none;overflow-x:auto;white-space:nowrap;display:flex;align-items:center;line-height:22px}
+#js-code-stock-panel .jcs-title-input:empty:before{content:attr(placeholder);color:#888;pointer-events:none}
 `;
         document.head.appendChild(style);
     }
@@ -841,6 +850,40 @@
         inputEl.focus();
     }
 
+    // テキスト欄の現在のカーソル位置にアイコン画像そのものを埋め込む
+    function insertIconAtCursor(iconCoord) {
+        if (!titleEl) return;
+        titleEl.focus();
+
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "jcs-inline-icon";
+        iconSpan.contentEditable = "false"; // 画像として1文字扱いにする
+        iconSpan.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
+        iconSpan.style.backgroundPosition = `-${iconCoord.x}px -${iconCoord.y}px`;
+        iconSpan.style.backgroundRepeat = "no-repeat";
+        iconSpan.dataset.iconCoord = JSON.stringify(iconCoord);
+
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+            let range = sel.getRangeAt(0);
+            if (!titleEl.contains(range.commonAncestorContainer)) {
+                range = document.createRange();
+                range.selectNodeContents(titleEl);
+                range.collapse(false);
+            }
+            range.deleteContents();
+            range.insertNode(iconSpan);
+
+            // カーソルを挿入したアイコンの直後に移動
+            range.setStartAfter(iconSpan);
+            range.setEndAfter(iconSpan);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } else {
+            titleEl.appendChild(iconSpan);
+        }
+    }
+    
     // アイコン追加時に名前も一緒に保存するように修正
     function getOrAddIconToAtlas(iconSrc, iconName) {
         if (!iconSrc) return Promise.resolve(null);
@@ -1399,6 +1442,14 @@
         const iconBar = document.createElement("div");
         iconBar.className = "jcs-icon-bar";
 
+        // ★ マウスホイールを上下に回すと左右に水平スクロール
+        iconBar.addEventListener("wheel", (e) => {
+            if (e.deltaY !== 0) {
+                e.preventDefault();
+                iconBar.scrollLeft += e.deltaY;
+            }
+        }, { passive: false });
+
         if (state.iconAtlas && state.iconAtlas.spriteUrl && Array.isArray(state.iconAtlas.sources) && state.iconAtlas.sources.length > 0) {
             state.iconAtlas.sources.forEach((src, idx) => {
                 const btn = document.createElement("div");
@@ -1408,8 +1459,9 @@
                 btn.style.backgroundRepeat = "no-repeat";
 
                 const iconName = (state.iconAtlas.names && state.iconAtlas.names[idx]) || ("Icon" + (idx + 1));
-                btn.title = `Click to insert [${iconName}] at cursor position`;
+                btn.title = `Click to insert [${iconName}] image at cursor`;
 
+                // ★ クリック時：名称欄のカーソル位置にアイコン画像そのものを埋め込み！
                 btn.onclick = (e) => {
                     e.stopPropagation();
                     const coord = { x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE };
@@ -1420,11 +1472,11 @@
                         if (item) item.iconCoord = coord;
                     }
 
+                    // 名称欄左のメインアイコン表示を更新
                     updateInputIconPreview();
 
-                    if (titleEl) {
-                        insertTextAtCursor(titleEl, iconName);
-                    }
+                    // ★ カーソル位置にアイコン画像そのものを埋め込み挿入！
+                    insertIconAtCursor(coord);
                 };
 
                 iconBar.appendChild(btn);
@@ -1434,12 +1486,12 @@
             emptyGuide.textContent = "No icons (Blocks auto-register icons)";
             emptyGuide.style.fontSize = "10px";
             emptyGuide.style.color = "#666";
-            emptyGuide.style.lineHeight = "20px";
-            emptyGuide.style.paddingLeft = "4px";
+            emptyGuide.style.lineHeight = "24px";
+            emptyGuide.style.paddingLeft = "6px";
             iconBar.appendChild(emptyGuide);
         }
 
-        // --- 3. 入力セクション（ここで inputSection を定義して作成） ---
+        // --- 入力セクション ---
         const inputSection = document.createElement("div");
         inputSection.className = "jcs-input-section";
         const inputRow = document.createElement("div");
@@ -1453,7 +1505,7 @@
         titleWrap.style.alignItems = "center";
         titleWrap.style.position = "relative";
 
-        // 名称入力欄の左に表示するアイコンプレビュー枠
+        // 名称欄左のアイコン枠
         inputIconPreview = document.createElement("div");
         inputIconPreview.className = "jcs-input-icon-preview";
         inputIconPreview.style.width = "20px";
@@ -1464,11 +1516,15 @@
         inputIconPreview.style.display = "none";
         titleWrap.appendChild(inputIconPreview);
 
-        titleEl = document.createElement("input");
-        titleEl.placeholder = "🏷️Code name";
+        // ★ 文字とアイコン画像を一緒に並べて表示できるリッチ入力欄
+        titleEl = document.createElement("div");
+        titleEl.className = "jcs-title-input";
+        titleEl.contentEditable = "true";
+        titleEl.setAttribute("placeholder", "🏷️Code name");
         titleEl.style.flex = "1";
+
         const clearTitle = makeButton("✕", () => {
-            titleEl.value = "";
+            titleEl.innerHTML = "";
             titleEl.focus();
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
@@ -1874,7 +1930,8 @@
             }
 
             const titleText = document.createElement("span");
-            titleText.textContent = item.title;
+            // ★ 文字列と埋め込まれたアイコン画像をそのまま美しく表示
+            titleText.innerHTML = item.title;
             name.appendChild(titleText);
 
             // ★ ALL検索時は、所属しているフォルダ名バッジ（例: [A > A-1]）を表示
@@ -2736,32 +2793,38 @@
     }
 
     function addItem() {
-        const title = titleEl && titleEl.value.trim();
-        const body = bodyEl ? bodyEl.value : "";
-        if (!title) return setStatus("Code name is required");
+        try {
+            // ★ innerHTMLでアイコン画像ごと読み取る（テキストが空でないか判定）
+            const titleHtml = titleEl ? titleEl.innerHTML.trim() : "";
+            const plainText = titleEl ? titleEl.textContent.trim() : "";
+            const body = bodyEl ? bodyEl.value : "";
+            if (!titleHtml && !plainText) return setStatus("Code name is required");
 
-        if (editingIdValue) {
-            const item = state.items.find(x => x.id === editingIdValue);
-            if (item) {
-                item.title = title;
-                item.body = body;
-                item.parent = state.filterParent;
-                item.child = state.filterChild[state.filterParent];
-                item.color = state.currentColor;
+            const p = state.filterParent || 0;
+            const c = (state.filterChild && state.filterChild[p]) || 0;
+
+            if (editingIdValue) {
+                const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
+                if (item) {
+                    item.title = titleHtml; // ★ 画像タグごと保存
+                    item.body = body;
+                    item.parent = p;
+                    item.child = c;
+                    item.color = state.currentColor || 0;
+                }
+            } else {
+                state.items.push({
+                    id: uid(),
+                    title: titleHtml, // ★ 画像タグごと保存
+                    body: body,
+                    parent: p,
+                    child: c,
+                    order: nextOrder(),
+                    color: state.currentColor || 0,
+                    iconCoord: pendingIconCoord || null
+                });
+                scrollToBottomOnRender = true;
             }
-        } else {
-            state.items.push({
-                id: uid(),
-                title,
-                body,
-                parent: state.filterParent,
-                child: state.filterChild[state.filterParent],
-                order: nextOrder(),
-                color: state.currentColor,
-                iconCoord: pendingIconCoord || null
-            });
-            scrollToBottomOnRender = true;
-        }
 
         // ★ 1. 状態の完全初期化
         pendingIconCoord = null;
