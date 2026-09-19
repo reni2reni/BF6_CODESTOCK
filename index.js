@@ -1395,31 +1395,6 @@
             colorTabs.appendChild(b);
         });
 
-        const colorTabs = document.createElement("div");
-        colorTabs.className = "jcs-tabs jcs-colors";
-        state.palette.slice(0, COLOR_COUNT).forEach((c, i) => {
-            const b = makeButton("", () => {
-                state.currentColor = i;
-                renderPanel();
-            }, "jcs-tab" + (state.currentColor === i ? " active" : ""));
-            b.style.background = c;
-            b.title = "Color " + (i + 1) + " — right click to change";
-            b.oncontextmenu = e => {
-                e.preventDefault();
-                const picker = document.createElement("input");
-                picker.type = "color";
-                picker.value = state.palette[i];
-                picker.onchange = () => {
-                    state.palette[i] = picker.value;
-                    saveState();
-                    renderPanel();
-                };
-                picker.click();
-            };
-            colorTabs.appendChild(b);
-        });
-
-        // ▼▼▼▼▼ ★ここに入れます！（1つ目の直後） ★▼▼▼▼▼
         const iconBar = document.createElement("div");
         iconBar.className = "jcs-icon-bar";
 
@@ -1434,18 +1409,22 @@
                 const iconName = (state.iconAtlas.names && state.iconAtlas.names[idx]) || ("Icon" + (idx + 1));
                 btn.title = `Click to insert [${iconName}] at cursor position`;
 
+                // ★ クリック時：名称のカーソル位置に文字挿入 ＆ アイコンをそのアイコンにセット
                 btn.onclick = (e) => {
                     e.stopPropagation();
                     const coord = { x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE };
                     pendingIconCoord = coord;
 
+                    // 編集中アイテムならアイテムのアイコンも更新
                     if (editingIdValue) {
                         const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
                         if (item) item.iconCoord = coord;
                     }
 
+                    // 名称欄の左のプレビューを更新
                     updateInputIconPreview();
 
+                    // 名称欄のカーソル位置にアイコン名を挿入
                     if (titleEl) {
                         insertTextAtCursor(titleEl, iconName);
                     }
@@ -1454,6 +1433,7 @@
                 iconBar.appendChild(btn);
             });
         } else {
+            // アイコンがまだ無い時のガイド表示
             const emptyGuide = document.createElement("span");
             emptyGuide.textContent = "No icons (Blocks auto-register icons)";
             emptyGuide.style.fontSize = "10px";
@@ -1462,8 +1442,10 @@
             emptyGuide.style.paddingLeft = "4px";
             iconBar.appendChild(emptyGuide);
         }
-        // ▲▲▲▲▲ ★ここまで★ ▲▲▲▲▲
 
+        inputSection.appendChild(colorTabs);
+        inputSection.appendChild(iconBar); // ★ カラーバーの真下にアイコン一覧を配置
+        
         const inputSection = document.createElement("div");
         inputSection.className = "jcs-input-section";
         const inputRow = document.createElement("div");
