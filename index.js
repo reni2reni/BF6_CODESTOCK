@@ -1395,10 +1395,11 @@
             colorTabs.appendChild(b);
         });
 
+        // --- 2. アイコン一覧バー（横スクロール） ---
         const iconBar = document.createElement("div");
         iconBar.className = "jcs-icon-bar";
 
-        if (state.iconAtlas && state.iconAtlas.spriteUrl && Array.isArray(state.iconAtlas.sources)) {
+        if (state.iconAtlas && state.iconAtlas.spriteUrl && Array.isArray(state.iconAtlas.sources) && state.iconAtlas.sources.length > 0) {
             state.iconAtlas.sources.forEach((src, idx) => {
                 const btn = document.createElement("div");
                 btn.className = "jcs-icon-btn";
@@ -1409,22 +1410,18 @@
                 const iconName = (state.iconAtlas.names && state.iconAtlas.names[idx]) || ("Icon" + (idx + 1));
                 btn.title = `Click to insert [${iconName}] at cursor position`;
 
-                // ★ クリック時：名称のカーソル位置に文字挿入 ＆ アイコンをそのアイコンにセット
                 btn.onclick = (e) => {
                     e.stopPropagation();
                     const coord = { x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE };
                     pendingIconCoord = coord;
 
-                    // 編集中アイテムならアイテムのアイコンも更新
                     if (editingIdValue) {
                         const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
                         if (item) item.iconCoord = coord;
                     }
 
-                    // 名称欄の左のプレビューを更新
                     updateInputIconPreview();
 
-                    // 名称欄のカーソル位置にアイコン名を挿入
                     if (titleEl) {
                         insertTextAtCursor(titleEl, iconName);
                     }
@@ -1433,7 +1430,6 @@
                 iconBar.appendChild(btn);
             });
         } else {
-            // アイコンがまだ無い時のガイド表示
             const emptyGuide = document.createElement("span");
             emptyGuide.textContent = "No icons (Blocks auto-register icons)";
             emptyGuide.style.fontSize = "10px";
@@ -1443,9 +1439,7 @@
             iconBar.appendChild(emptyGuide);
         }
 
-        inputSection.appendChild(colorTabs);
-        inputSection.appendChild(iconBar); // ★ カラーバーの真下にアイコン一覧を配置
-        
+        // --- 3. 入力セクション（ここで inputSection を定義して作成） ---
         const inputSection = document.createElement("div");
         inputSection.className = "jcs-input-section";
         const inputRow = document.createElement("div");
@@ -1459,7 +1453,7 @@
         titleWrap.style.alignItems = "center";
         titleWrap.style.position = "relative";
 
-        // ★ 名称入力欄の左に表示するアイコンプレビュー枠
+        // 名称入力欄の左に表示するアイコンプレビュー枠
         inputIconPreview = document.createElement("div");
         inputIconPreview.className = "jcs-input-icon-preview";
         inputIconPreview.style.width = "20px";
@@ -1478,7 +1472,9 @@
             titleEl.focus();
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
+
         updateInputIconPreview();
+
         const bodyWrap = document.createElement("div");
         bodyWrap.className = "jcs-input-wrapper";
         bodyEl = document.createElement("textarea");
@@ -1519,12 +1515,12 @@
         toggle.id = "jcs-toggle-input";
         inputSection.appendChild(toggle);
 
+        // ★ 閉じる時はカラーバー・アイコンバー・入力欄をまとめて隠す
         if (inputHidden) {
             inputRow.classList.add("jcs-hidden");
             colorTabs.classList.add("jcs-hidden");
-            iconBar.classList.add("jcs-hidden"); // ★ 入力欄閉鎖時はアイコンバーも一緒に隠す
+            iconBar.classList.add("jcs-hidden");
         } else if (hasEditingId()) {
-            // ★ 安全なID比較でアイテムを確実に特定
             const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
             if (item) {
                 titleEl.value = item.title || "";
@@ -1718,7 +1714,7 @@
         statusEl.textContent = "Ready";
         foot.appendChild(statusEl);
 
-        container.append(head, parentTabs, childTabs, colorTabs, inputSection, filter, bodyHead, mainPane, foot);
+        container.append(head, parentTabs, childTabs, colorTabs, iconBar, inputSection, filter, bodyHead, mainPane, foot);
         panel.appendChild(container);
 
         renderList();
