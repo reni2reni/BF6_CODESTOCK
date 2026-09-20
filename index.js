@@ -2238,7 +2238,7 @@
             let isDragging = false;
             let createdBlock = null;
             let ws = null;
-            let dragGroupId = null;
+            const B = _Blockly || window.Blockly;
 
             const onMouseMove = (moveEvent) => {
                 if (!panel) return;
@@ -2246,16 +2246,13 @@
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
                     moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
 
-                // パネルから飛び出してブロックが生まれた瞬間
+                // 1. ドラッグ開始：ドラッグ中の余計なマウス移動を無視するため、ここで履歴記録を一時停止！
                 if (!isDragging && isOutside) {
                     isDragging = true;
                     ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
                     if (ws) {
-                        const B = _Blockly || window.Blockly;
-                        // ★ 生成からドロップ完了までを1つのUNDOにするグループIDを開始
-                        dragGroupId = (B.utils && B.utils.genUid) ? B.utils.genUid() : ("jcs_drag_" + Date.now());
-                        if (B.Events && typeof B.Events.setGroup === "function") {
-                            B.Events.setGroup(dragGroupId);
+                        if (B.Events && typeof B.Events.disable === "function") {
+                            B.Events.disable();
                         }
                         createdBlock = createBlockInstance(ws, item);
                     }
@@ -2269,7 +2266,7 @@
                     }
                 }
 
-                // マウス追従移動（余計な処理は一切せず、元のスムーズな描画のまま）
+                // 2. ドラッグ中：履歴は停止中なので、何百回マウスが動いてもUNDOスタックは汚れない（超軽量）
                 if (isDragging && createdBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
@@ -2286,24 +2283,41 @@
                 document.removeEventListener("mousemove", onMouseMove);
                 document.removeEventListener("mouseup", onMouseUp);
 
-                const B = _Blockly || window.Blockly;
-
                 if (isDragging) {
-                    if (createdBlock && ws) {
-                        const coords = getWorkspaceCoords(ws, upEvent);
-                        const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
-                        if (typeof createdBlock.moveTo === "function") {
-                            createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
-                        }
-                        if (typeof createdBlock.render === "function") createdBlock.render();
-                        autoConnectBlock(createdBlock);
-
-                        if (typeof createdBlock.select === "function") createdBlock.select();
+                    // 3. 指を離した瞬間：履歴記録を再開！
+                    if (B.Events && typeof B.Events.enable === "function") {
+                        B.Events.enable();
                     }
 
-                    // ★ ドロップ完了！ここでグループ化を閉じる（これでドラッグ中の移動も全部まとめて1つのUNDOになる）
-                    if (B.Events && typeof B.Events.setGroup === "function") {
-                        B.Events.setGroup(false);
+                    if (createdBlock && ws) {
+                        // ★ 置いた瞬間だけを1つのUNDO履歴にまとめる
+                        const dropGroupId = (B.utils && B.utils.genUid) ? B.utils.genUid() : ("jcs_drop_" + Date.now());
+                        if (B.Events && typeof B.Events.setGroup === "function") {
+                            B.Events.setGroup(dropGroupId);
+                        }
+
+                        try {
+                            // 「置いた瞬間の作成」をUNDOに1つ登録
+                            const CreateEvent = B.Events.BlockCreate || B.Events.Create;
+                            if (typeof CreateEvent === "function" && B.Events.fire) {
+                                try { B.Events.fire(new CreateEvent(createdBlock)); } catch (_) { }
+                            }
+
+                            // 最終位置と接続
+                            const coords = getWorkspaceCoords(ws, upEvent);
+                            const Coordinate = (B.utils && B.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+                            if (typeof createdBlock.moveTo === "function") {
+                                createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
+                            }
+                            if (typeof createdBlock.render === "function") createdBlock.render();
+                            autoConnectBlock(createdBlock);
+
+                            if (typeof createdBlock.select === "function") createdBlock.select();
+                        } finally {
+                            if (B.Events && typeof B.Events.setGroup === "function") {
+                                B.Events.setGroup(false);
+                            }
+                        }
                     }
 
                     if (!isPinned) {
