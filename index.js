@@ -3,9 +3,9 @@
     "use strict";
 
     const plugin = BF2042Portal.Plugins.getPlugin("codeStock");
-    const STORAGE_KEY = "BF2042Portal_CODESTOCK_v1";
-    const SYNC_ENABLED_KEY = "BF2042Portal_CODESTOCK_SyncEnabled";
-    const DB_NAME = "BF2042Portal_CODESTOCK_DB";
+    const STORAGE_KEY = "BF2042Portal_codeStock_v1";
+    const SYNC_ENABLED_KEY = "BF2042Portal_codeStock_SyncEnabled";
+    const DB_NAME = "BF2042Portal_codeStock_DB";
     const DB_STORE = "state_store";
 
     const PARENT_COUNT = 4;
@@ -212,7 +212,7 @@
             if (!applyLoadedState(saved, false)) return;
             if (panel) renderPanel();
         } catch (e) {
-            console.error("[CODE STOCK] load failed", e);
+            console.error("[Code Stock] load failed", e);
         }
     }
 
@@ -260,7 +260,7 @@
             setStatus("Synced");
             return true;
         } catch (e) {
-            console.warn("[CODE STOCK] sync failed:", e);
+            console.warn("[Code Stock] sync failed:", e);
             return false;
         }
     }
@@ -369,7 +369,7 @@
         idbSet("app_state", state).then(() => {
             setStatus(localSaved ? "Saved" : "Saved (IDB)");
         }).catch(err => {
-            console.warn("[CODE STOCK] IndexedDB save failed:", err);
+            console.warn("[Code Stock] IndexedDB save failed:", err);
             if (localSaved) {
                 setStatus("Saved (local)");
             } else {
@@ -442,7 +442,7 @@
             svg.addEventListener("mousemove", e => { lastMouseEvent = e; }, { passive: true });
             svg.addEventListener("contextmenu", e => { lastContextMenuEvent = e; lastMouseEvent = e; }, { passive: true });
         } catch (e) {
-            console.warn("[CODE STOCK] mouse tracking failed:", e);
+            console.warn("[Code Stock] mouse tracking failed:", e);
         }
     }
 
@@ -690,7 +690,7 @@
             reader.onload = () => {
                 try {
                     const data = JSON.parse(reader.result);
-                    if (!confirm("Overwrite current CODE STOCK data?")) return;
+                    if (!confirm("Overwrite current Code Stock data?")) return;
 
                     if (Array.isArray(data.items)) state.items = data.items;
 
@@ -714,7 +714,7 @@
                     setStatus("Import complete");
                 } catch (e) {
                     setStatus("Loading failed");
-                    BF2042Portal.Shared.logError("CODE STOCK import", String(e));
+                    BF2042Portal.Shared.logError("Code Stock import", String(e));
                 }
             };
             reader.readAsText(file);
@@ -2281,7 +2281,7 @@
                 createdBlock = Blockly.Xml.domToBlock(dom, ws);
             }
         } catch (e) {
-            console.warn("[CODE STOCK] block append failed:", e);
+            console.warn("[Code Stock] block append failed:", e);
         }
 
         if (!createdBlock || typeof createdBlock.initSvg !== "function") {
@@ -2379,7 +2379,7 @@
                 const root = createdBlock.getRootBlock();
                 if (root && typeof root.render === "function") root.render();
             } catch (err) {
-                console.warn("[CODE STOCK] autoConnect failed:", err);
+                console.warn("[Code Stock] autoConnect failed:", err);
             }
         }
     }
@@ -2532,7 +2532,7 @@
                 try {
                     events.fire(new CreateEvent(createdBlock));
                 } catch (e) {
-                    console.warn("[CODE STOCK] BlockCreate event failed:", e);
+                    console.warn("[Code Stock] BlockCreate event failed:", e);
                 }
             }
         }
@@ -2833,8 +2833,8 @@
 
             setTimeout(() => titleEl && titleEl.focus(), 0);
         } catch (e) {
-            console.error("[CODE STOCK] block entry error:", e);
-            BF2042Portal.Shared.logError("CODE STOCK block entry", String(e));
+            console.error("[Code Stock] block entry error:", e);
+            BF2042Portal.Shared.logError("Code Stock block entry", String(e));
         }
     }
 
@@ -2873,7 +2873,7 @@
                 scrollToBottomOnRender = true;
             }
         } catch (err) {
-            console.error("[CODE STOCK] addItem error:", err);
+            console.error("[Code Stock] addItem error:", err);
         }
 
         pendingIconCoord = null;
@@ -3110,7 +3110,7 @@
 
         const workspaceItem = {
             id: "codeStockWorkspace",
-            displayText: "CODE STOCK",
+            displayText: "Code Stock",
             scopeType: Scope.WORKSPACE,
             weight: 90,
             preconditionFn: () => "enabled",
@@ -3121,7 +3121,7 @@
 
         const blockItem = {
             id: "codeStockBlock",
-            displayText: "CODE STOCK",
+            displayText: "Code Stock",
             scopeType: Scope.BLOCK,
             weight: 90,
             preconditionFn: () => "enabled",
@@ -3137,7 +3137,7 @@
 
     plugin.initializeWorkspace = async function () {
         await loadState();
-        try { registerMenus(); } catch (e) { BF2042Portal.Shared.logError("CODE STOCK menu registration", String(e)); }
+        try { registerMenus(); } catch (e) { BF2042Portal.Shared.logError("Code Stock menu registration", String(e)); }
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
             attachMouseTracking(ws);
