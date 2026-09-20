@@ -2901,12 +2901,96 @@
         saveState();
     }
 
+    // ★ ブロックの Copy / Cut / Paste 用データ保持変数
+    let copiedBlockData = null;
+
+    // ブロックのコピー処理
+    function copyBlock(scope) {
+        const block = (scope && scope.block) || (plugin.getSelectedBlocks && plugin.getSelectedBlocks(scope)[0]);
+        if (!block) return;
+        try {
+            copiedBlockData = _Blockly.serialization.blocks.save(block);
+        } catch (_) {
+            if (typeof Blockly !== "undefined" && Blockly.Xml) {
+                const xml = Blockly.Xml.blockToDom(block, true);
+                copiedBlockData = { _legacyXml: Blockly.Xml.domToText(xml) };
+            }
+        }
+        if (copiedBlockData) {
+            copyText(JSON.stringify(copiedBlockData, null, 2)).catch(() => { });
+            setStatus("Block copied");
+        }
+    }
+
+    // ブロックのカット処理
+    function cutBlock(scope) {
+        const block = (scope && scope.block) || (plugin.getSelectedBlocks && plugin.getSelectedBlocks(scope)[0]);
+        if (!block) return;
+        copyBlock(scope);
+        if (typeof block.dispose === "function") {
+            block.dispose(true); // 子ブロックも含めて削除
+            setStatus("Block cut");
+        }
+    }
+
+    // ブロックの貼り付け処理（右クリック位置へ配置）
+    function pasteCopiedBlock(scope) {
+        if (!copiedBlockData) return;
+        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+        if (!ws) return;
+
+        // 右クリックされた座標を取得
+        const ev = (scope && scope.event) || lastContextMenuEvent || lastMouseEvent;
+        const coords = ev ? getWorkspaceCoords(ws, ev) : { x: 50, y: 50 };
+
+        // 右クリック位置にブロックを生成して自動結合
+        pasteBlockAt(ws, { body: JSON.stringify(copiedBlockData) }, coords);
+        setStatus("Pasted block at pointer");
+    }
+
     let menusRegistered = false;
 
     function registerMenus() {
         if (menusRegistered) return;
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
+        // ★ 1. Copy（ブロック上・一番上）
+        const copyItem = {
+            id: "jsCodeStockCopy",
+            displayText: "Copy",
+            scopeType: Scope.BLOCK,
+            weight: 1,
+            preconditionFn: () => "enabled",
+            callback: scope => copyBlock(scope)
+        };
+        plugin.registerItem(copyItem);
+        _Blockly.ContextMenuRegistry.registry.register(copyItem);
+
+        // ★ 2. Cut（ブロック上・一番上の2番目）
+        const cutItem = {
+            id: "jsCodeStockCut",
+            displayText: "Cut",
+            scopeType: Scope.BLOCK,
+            weight: 2,
+            preconditionFn: () => "enabled",
+            callback: scope => cutBlock(scope)
+        };
+        plugin.registerItem(cutItem);
+        _Blockly.ContextMenuRegistry.registry.register(cutItem);
+
+        // ★ 3. Paste（何もないワークスペース上・一番上）
+        const pasteItem = {
+            id: "jsCodeStockPaste",
+            displayText: "Paste",
+            scopeType: Scope.WORKSPACE,
+            weight: 1,
+            preconditionFn: () => (copiedBlockData ? "enabled" : "disabled"),
+            callback: scope => pasteCopiedBlock(scope)
+        };
+        plugin.registerItem(pasteItem);
+        _Blockly.ContextMenuRegistry.registry.register(pasteItem);
+
+        // 4. 既存の JS Code Stock (Workspace)
         const workspaceItem = {
             id: "jsCodeStockWorkspace",
             displayText: "JS Code Stock",
@@ -2918,6 +3002,7 @@
         plugin.registerItem(workspaceItem);
         _Blockly.ContextMenuRegistry.registry.register(workspaceItem);
 
+        // 5. 既存の JS Code Stock (Block)
         const blockItem = {
             id: "jsCodeStockBlock",
             displayText: "JS Code Stock",
@@ -2931,6 +3016,7 @@
         };
         plugin.registerItem(blockItem);
         _Blockly.ContextMenuRegistry.registry.register(blockItem);
+
         menusRegistered = true;
     }
 
