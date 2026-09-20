@@ -1653,7 +1653,6 @@
 
             drag.oncontextmenu = (e) => {
                 e.preventDefault();
-                e.stopPropagation();
                 if (!selectedIds.has(id)) {
                     selectedIds.clear();
                     selectedIds.add(id);
@@ -1661,12 +1660,6 @@
                     renderList();
                 }
                 showMenu(e, item);
-            };
-
-            // ★ リスト項目（行）の右クリックで、直接ブロックのヘルプ別窓を開く
-            row.oncontextmenu = (e) => {
-                e.preventDefault();
-                showBlockHelpWindow(item);
             };
 
             drag.onclick = (e) => {
