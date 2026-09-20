@@ -1176,7 +1176,7 @@
         syncRow.title = "ON: 親/子タブを開くたびに共有IndexedDB/localStorageの最新データを読み込む";
 
         const syncLabel = document.createElement("span");
-        syncLabel.textContent = "同期";
+        syncLabel.textContent = "Multiple sync";
 
         const syncCheck = document.createElement("input");
         syncCheck.type = "checkbox";
