@@ -461,10 +461,10 @@
 #js-code-stock-panel .jcs-main-pane{display:flex;flex:1 1 0;min-height:0;height:100%;margin-top:4px;gap:6px;overflow:hidden}
 
 /* 左ツリーの max-width / min-width 制限を解除・調整 */
-#js-code-stock-panel .jcs-tree-nav{min-width:60px;max-width:320px;height:100%;max-height:100%;background:#181818;border:1px solid #333;border-radius:4px;overflow-y:scroll!important;overflow-x:hidden;padding:4px;flex-shrink:0;display:block}
+#js-code-stock-panel .jcs-tree-nav{min-width:0!important;max-width:none!important;height:100%;max-height:100%;background:#181818;border:1px solid #333;border-radius:4px;overflow-y:auto!important;overflow-x:hidden;padding:2px;flex-shrink:0;box-sizing:border-box}
 
 /* ★ 境目をドラッグしてリサイズするためのスプリッター */
-#js-code-stock-panel .jcs-splitter{width:5px;cursor:col-resize;background:#222;flex-shrink:0;transition:background 0.15s;margin:0 1px;border-radius:2px}
+#js-code-stock-panel .jcs-splitter{width:6px;cursor:col-resize;background:#222;flex-shrink:0;transition:background 0.15s;margin:0 1px;border-radius:2px}
 #js-code-stock-panel .jcs-splitter:hover,#js-code-stock-panel .jcs-splitter.active{background:#4da3ff}
 
 /* ★ 見出し部のフォントサイズコントローラー */
@@ -1505,8 +1505,9 @@
         if (showTreeNav) {
             const treeNav = document.createElement("div");
             treeNav.className = "jcs-tree-nav";
-            // ★ 保存された幅を適用
-            treeNav.style.width = (state.treeNavWidth || 145) + "px";
+            // ★ 初期幅をコンパクトな85pxに設定（余白をなくす）
+            const currentWidth = state.treeNavWidth !== undefined ? state.treeNavWidth : 85;
+            treeNav.style.width = currentWidth + "px";
 
             for (let p = 0; p < state.parentCount; p++) {
                 const pName = state.parents[p] || ("P" + p);
@@ -1515,7 +1516,7 @@
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent";
                 pEl.textContent = pName;
-                pEl.style.fontSize = Math.max(10, state.listFontSize - 3) + "px"; // 親タブも連動縮尺
+                pEl.style.fontSize = Math.max(10, (state.listFontSize || 15) - 3) + "px";
 
                 const pColorIdx = state.parentColors ? state.parentColors[p] : null;
                 if (pColorIdx !== null && pColorIdx !== undefined && state.palette[pColorIdx]) {
@@ -1541,8 +1542,7 @@
                     const isActive = (searchScope === "TAB" && state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
                     cEl.textContent = cName;
-                    // ★ フォントサイズを適用
-                    cEl.style.fontSize = state.listFontSize + "px";
+                    cEl.style.fontSize = (state.listFontSize || 15) + "px";
 
                     const cColorIdx = (state.childColors && state.childColors[p]) ? state.childColors[p][c] : null;
                     if (cColorIdx !== null && cColorIdx !== undefined && state.palette[cColorIdx]) {
@@ -1570,24 +1570,22 @@
             }, { passive: true });
 
             treeNav.scrollTop = lastTreeNavScrollTop;
-            requestAnimationFrame(() => {
-                if (treeNav) treeNav.scrollTop = lastTreeNavScrollTop;
-            });
 
-            // ★ 境目を左右にドラッグしてサイズ変更できるスプリッターバー
+            // ★ スプリッター（最小35px〜最大300pxまで自在に縮小・拡大可能に）
             const splitter = document.createElement("div");
             splitter.className = "jcs-splitter";
-            splitter.title = "Drag to resize sidebar width";
+            splitter.title = "Drag to resize";
 
             splitter.addEventListener("mousedown", (e) => {
                 if (e.button !== 0) return;
                 e.preventDefault();
                 splitter.classList.add("active");
                 const startX = e.clientX;
-                const startWidth = treeNav.offsetWidth;
+                const startWidth = treeNav.getBoundingClientRect().width;
 
                 const onMouseMove = (ev) => {
-                    const newWidth = Math.max(70, Math.min(320, startWidth + (ev.clientX - startX)));
+                    // ★ 最小35pxまで縮められるように制限を緩和
+                    const newWidth = Math.max(35, Math.min(300, startWidth + (ev.clientX - startX)));
                     treeNav.style.width = newWidth + "px";
                     state.treeNavWidth = newWidth;
                 };
