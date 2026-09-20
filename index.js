@@ -2326,17 +2326,43 @@
     }
 
     function pasteBlockAt(ws, item, targetCoords) {
-        const createdBlock = createBlockInstance(ws, item);
-        if (!createdBlock) return null;
+        const Blockly = _Blockly || window.Blockly;
 
-        const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
-        if (typeof createdBlock.moveTo === "function") {
-            createdBlock.moveTo(new Coordinate(targetCoords.x, targetCoords.y));
+        // 1. 移動や接続がバラバラにUNDO記録されないよう、イベント記録を一時停止
+        if (Blockly && Blockly.Events && typeof Blockly.Events.disable === "function") {
+            Blockly.Events.disable();
         }
-        if (typeof createdBlock.render === "function") createdBlock.render();
-        if (typeof createdBlock.select === "function") createdBlock.select();
 
-        autoConnectBlock(createdBlock);
+        let createdBlock = null;
+        try {
+            createdBlock = createBlockInstance(ws, item);
+            if (!createdBlock) return null;
+
+            const Coordinate = (Blockly.utils && Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+            if (typeof createdBlock.moveTo === "function") {
+                createdBlock.moveTo(new Coordinate(targetCoords.x, targetCoords.y));
+            }
+            if (typeof createdBlock.render === "function") createdBlock.render();
+            if (typeof createdBlock.select === "function") createdBlock.select();
+
+            autoConnectBlock(createdBlock);
+        } finally {
+            // 2. イベント記録を再開
+            if (Blockly && Blockly.Events && typeof Blockly.Events.enable === "function") {
+                Blockly.Events.enable();
+            }
+        }
+
+        // 3. 完成した位置で「作成イベント」を1つだけUNDOスタックに登録
+        if (createdBlock && Blockly && Blockly.Events && typeof Blockly.Events.fire === "function") {
+            const CreateEvent = Blockly.Events.BlockCreate || Blockly.Events.Create;
+            if (typeof CreateEvent === "function") {
+                try {
+                    Blockly.Events.fire(new CreateEvent(createdBlock));
+                } catch (_) { }
+            }
+        }
+
         return createdBlock;
     }
 
