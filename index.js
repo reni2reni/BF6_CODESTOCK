@@ -4,6 +4,7 @@
 
     const plugin = BF2042Portal.Plugins.getPlugin("jsCodeStock");
     const STORAGE_KEY = "BF2042Portal_JSCodeStock_v1";
+    const SYNC_ENABLED_KEY = "BF2042Portal_JSCodeStock_SyncEnabled";
     const DB_NAME = "BF2042Portal_JSCodeStock_DB";
     const DB_STORE = "state_store";
 
@@ -69,6 +70,7 @@
     let bodyEl = null;
     let statusEl = null;
     let searchScope = "ALL"; // ★ 検索範囲（"TAB" = 選択タブ内 / "ALL" = 全データ検索）
+    let syncOnTabOpen = false; // ★ タブを開くたびに共有ストレージから最新データを同期
 
     let interactionMode = "normal";
     let pendingBlockData = null;
@@ -129,38 +131,137 @@
         }));
     }
 
-    async function loadState() {
+    function readSyncSetting() {
         try {
-            let saved = null;
-            try {
-                saved = await idbGet("app_state");
-            } catch (_) { }
+            syncOnTabOpen = localStorage.getItem(SYNC_ENABLED_KEY) === "1";
+        } catch (_) {
+            syncOnTabOpen = false;
+        }
+        return syncOnTabOpen;
+    }
 
-            if (!saved) {
-                const raw = localStorage.getItem(STORAGE_KEY);
-                if (raw) {
-                    saved = JSON.parse(raw);
-                    idbSet("app_state", saved).catch(() => { });
-                }
-            }
+    function writeSyncSetting(enabled) {
+        syncOnTabOpen = !!enabled;
+        try {
+            localStorage.setItem(SYNC_ENABLED_KEY, syncOnTabOpen ? "1" : "0");
+        } catch (_) { }
+    }
 
-            if (!saved) return;
-            const d = cloneDefault();
-            state = Object.assign(d, saved);
+    function getSavedAt(data) {
+        const n = Number(data && data.__jcsUpdatedAt);
+        return Number.isFinite(n) ? n : 0;
+    }
 
+    async function getSharedState() {
+        let idbState = null;
+        let localState = null;
+
+        try {
+            idbState = await idbGet("app_state");
+        } catch (_) { }
+
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) localState = JSON.parse(raw);
+        } catch (_) { }
+
+        // IndexedDB と localStorage のうち、更新日時が新しい方を採用。
+        // 旧データ（更新日時なし）は従来どおり IndexedDB を優先する。
+        if (idbState && localState) {
+            return getSavedAt(localState) > getSavedAt(idbState) ? localState : idbState;
+        }
+        return idbState || localState || null;
+    }
+
+    function applyLoadedState(saved, preserveTab = false) {
+        if (!saved) return false;
+
+        const keepParent = state.filterParent;
+        const keepChild = Array.isArray(state.filterChild) ? state.filterChild.slice() : Array(8).fill(0);
+
+        const d = cloneDefault();
+        state = Object.assign(d, saved);
+
+        if (preserveTab) {
+            state.filterParent = keepParent;
+            state.filterChild = keepChild;
+        } else {
             state.filterParent = 0;
             state.filterChild = Array(8).fill(0);
-            if (!state.parentCount) state.parentCount = 4;
-            if (!state.childCount) state.childCount = 6;
+        }
 
-            if (Array.isArray(saved.parents)) state.parents = saved.parents.slice();
-            if (Array.isArray(saved.children)) state.children = saved.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
-            if (Array.isArray(saved.palette) && saved.palette.length === COLOR_COUNT) state.palette = saved.palette;
-            if (!Array.isArray(state.items)) state.items = [];
-            currentSnapshot = getSnapshotString();
+        if (!state.parentCount) state.parentCount = 4;
+        if (!state.childCount) state.childCount = 6;
+
+        if (Array.isArray(saved.parents)) state.parents = saved.parents.slice();
+        if (Array.isArray(saved.children)) state.children = saved.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
+        if (Array.isArray(saved.palette) && saved.palette.length === COLOR_COUNT) state.palette = saved.palette;
+        if (!Array.isArray(state.items)) state.items = [];
+
+        ensureStateIntegrity();
+        currentSnapshot = getSnapshotString();
+        undoStack = [];
+        redoStack = [];
+        return true;
+    }
+
+    async function loadState() {
+        try {
+            readSyncSetting();
+            const saved = await getSharedState();
+            if (!applyLoadedState(saved, false)) return;
             if (panel) renderPanel();
         } catch (e) {
             console.error("[JS Code Stock] load failed", e);
+        }
+    }
+
+    // ★ 同期ON時だけ、親/子タブを開く直前に共有IndexedDB/localStorageの最新状態を読む。
+    async function syncBeforeTabOpen() {
+        readSyncSetting();
+        if (!syncOnTabOpen) return false;
+
+        try {
+            const saved = await getSharedState();
+            if (!saved) return false;
+
+            const sharedAt = getSavedAt(saved);
+            const currentAt = getSavedAt(state);
+
+            if (sharedAt > 0 && currentAt > sharedAt) return false;
+
+            const sharedData = {
+                items: Array.isArray(saved.items) ? saved.items : [],
+                parents: saved.parents,
+                children: saved.children,
+                parentCount: saved.parentCount,
+                childCount: saved.childCount,
+                palette: saved.palette,
+                parentColors: saved.parentColors,
+                childColors: saved.childColors,
+                iconAtlas: saved.iconAtlas
+            };
+            const currentData = {
+                items: state.items,
+                parents: state.parents,
+                children: state.children,
+                parentCount: state.parentCount,
+                childCount: state.childCount,
+                palette: state.palette,
+                parentColors: state.parentColors,
+                childColors: state.childColors,
+                iconAtlas: state.iconAtlas
+            };
+
+            const sharedHasDifferentData = JSON.stringify(sharedData) !== JSON.stringify(currentData);
+            if (!sharedHasDifferentData) return false;
+
+            applyLoadedState(saved, true);
+            setStatus("Synced");
+            return true;
+        } catch (e) {
+            console.warn("[JS Code Stock] sync failed:", e);
+            return false;
         }
     }
 
@@ -240,6 +341,9 @@
     }
 
     function saveState() {
+        // 共有ストレージ上で「どちらが新しいか」を判定するための更新時刻。
+        state.__jcsUpdatedAt = Math.max(Date.now(), getSavedAt(state) + 1);
+
         if (!isHistoryAction) {
             const nextSnap = getSnapshotString();
             if (currentSnapshot === null) {
@@ -254,14 +358,21 @@
 
         updateHistoryButtons();
 
+        // IndexedDBを本体として保存しつつ、同期用の共有localStorageにもミラーする。
+        // localStorageが容量超過してもIndexedDB側の保存は継続する。
+        let localSaved = false;
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            localSaved = true;
+        } catch (_) { }
+
         idbSet("app_state", state).then(() => {
-            setStatus("Saved");
+            setStatus(localSaved ? "Saved" : "Saved (IDB)");
         }).catch(err => {
-            console.warn("[JS Code Stock] IndexedDB save failed, fallback to local:", err);
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-                setStatus("Saved");
-            } catch (e) {
+            console.warn("[JS Code Stock] IndexedDB save failed:", err);
+            if (localSaved) {
+                setStatus("Saved (local)");
+            } else {
                 setStatus("Save failed");
             }
         });
@@ -1058,6 +1169,26 @@
         const sep1 = document.createElement("div");
         sep1.className = "jcs-menu-sep";
 
+        readSyncSetting();
+        const syncRow = document.createElement("label");
+        syncRow.className = "jcs-menu-row jcs-sync-row";
+        syncRow.style.cursor = "pointer";
+        syncRow.title = "ON: 親/子タブを開くたびに共有IndexedDB/localStorageの最新データを読み込む";
+
+        const syncLabel = document.createElement("span");
+        syncLabel.textContent = "同期";
+
+        const syncCheck = document.createElement("input");
+        syncCheck.type = "checkbox";
+        syncCheck.checked = syncOnTabOpen;
+        syncCheck.style.cursor = "pointer";
+        syncCheck.addEventListener("change", () => {
+            writeSyncSetting(syncCheck.checked);
+            setStatus(syncCheck.checked ? "Tab Sync: ON" : "Tab Sync: OFF");
+        });
+
+        syncRow.append(syncLabel, syncCheck);
+
         const pRow = document.createElement("div");
         pRow.className = "jcs-menu-row";
         const pLabel = document.createElement("span");
@@ -1145,7 +1276,7 @@
         resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
         resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
 
-        menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, pRow, cRow, sep2, resetBtn);
+        menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, syncRow, pRow, cRow, sep2, resetBtn);
         document.body.appendChild(menu);
 
         setTimeout(() => {
@@ -1239,9 +1370,13 @@
         parentTabs.className = "jcs-tabs";
         state.parents.slice(0, state.parentCount).forEach((name, i) => {
             const isActive = (searchScope === "TAB" && state.filterParent === i);
-            const b = makeButton(name, () => {
+            const b = makeButton(name, async () => {
+                await syncBeforeTabOpen();
                 searchScope = "TAB";
                 state.filterParent = i;
+                if (state.filterParent >= state.parentCount) {
+                    state.filterParent = Math.max(0, state.parentCount - 1);
+                }
                 renderPanel();
             }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
@@ -1255,8 +1390,15 @@
         childTabs.className = "jcs-tabs jcs-child";
         (state.children[state.filterParent] || []).slice(0, state.childCount).forEach((name, i) => {
             const isActive = (searchScope === "TAB" && state.filterChild[state.filterParent] === i);
-            const b = makeButton(name, () => {
+            const b = makeButton(name, async () => {
+                await syncBeforeTabOpen();
                 searchScope = "TAB";
+                if (!Array.isArray(state.filterChild)) {
+                    state.filterChild = Array(8).fill(0);
+                }
+                if (state.filterParent >= state.parentCount) {
+                    state.filterParent = Math.max(0, state.parentCount - 1);
+                }
                 state.filterChild[state.filterParent] = i;
                 renderPanel();
             }, "jcs-tab" + (isActive ? " active" : ""));
