@@ -1312,7 +1312,7 @@
         head.className = "jcs-head";
         const ttl = document.createElement("div");
         ttl.className = "jcs-title";
-        ttl.textContent = isCollapsed ? "🐛JS Stock ▶" : "🐛JS Stock ▼";
+        ttl.textContent = isCollapsed ? "🐛Code Stock ▶" : "🐛Code Stock ▼";
 
         attachTitleDragAndToggle(ttl);
 
