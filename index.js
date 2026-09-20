@@ -1611,8 +1611,9 @@
 
         // フォーカスして、カーソルを一番左に設定
         editInput.focus();
+        const len = editInput.value.length;
         if (typeof editInput.setSelectionRange === "function") {
-            editInput.setSelectionRange(0, 0);
+            editInput.setSelectionRange(len, len);
         }
     }
 
