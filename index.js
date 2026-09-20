@@ -1604,6 +1604,218 @@
 
     function hasEditingId() { return !!editingIdValue; }
 
+    // ブロックのヘルプ情報（ツールチップ・型名・入力ポート・URL）を取得
+    function getBlockHelpInfo(item) {
+        let blockType = "";
+        let tooltip = "";
+        let helpUrl = "";
+        let inputs = [];
+
+        try {
+            const data = JSON.parse(item.body);
+            blockType = data.type || "";
+            const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
+            if (ws && blockType) {
+                const temp = ws.newBlock(blockType);
+                if (temp) {
+                    if (typeof temp.getTooltip === "function") {
+                        const t = temp.getTooltip();
+                        tooltip = (typeof t === "string") ? t : (t && t.textContent) || "";
+                    } else if (temp.tooltip) {
+                        tooltip = (typeof temp.tooltip === "function") ? temp.tooltip() : String(temp.tooltip);
+                    }
+
+                    if (typeof temp.getHelpUrl === "function") {
+                        helpUrl = temp.getHelpUrl() || "";
+                    } else if (temp.helpUrl) {
+                        helpUrl = (typeof temp.helpUrl === "function") ? temp.helpUrl() : String(temp.helpUrl);
+                    }
+
+                    if (temp.inputList) {
+                        temp.inputList.forEach(inp => {
+                            const names = [];
+                            if (inp.fieldRow) {
+                                inp.fieldRow.forEach(f => {
+                                    const txt = typeof f.getText === "function" ? f.getText() : (f.getValue ? f.getValue() : "");
+                                    if (txt) names.push(txt);
+                                });
+                            }
+                            const label = names.join(" ").trim() || inp.name || "Input";
+                            const check = (inp.connection && inp.connection.check_) ? inp.connection.check_.join(" | ") : "";
+                            inputs.push({ label, check });
+                        });
+                    }
+
+                    temp.dispose(false);
+                }
+            }
+        } catch (e) {
+            console.warn("[JS Code Stock] getBlockHelpInfo failed:", e);
+        }
+
+        return {
+            title: item.title,
+            blockType: blockType || "Unknown Block",
+            tooltip: tooltip || "(No description / tooltip available)",
+            helpUrl: helpUrl,
+            inputs: inputs
+        };
+    }
+
+    // ヘルプ内容を表示するフローティング別窓を開く
+    function showBlockHelpWindow(item) {
+        const old = document.getElementById("jcs-help-window");
+        if (old) old.remove();
+
+        const info = getBlockHelpInfo(item);
+
+        const win = document.createElement("div");
+        win.id = "jcs-help-window";
+        win.style.position = "fixed";
+        win.style.left = Math.max(20, Math.min(window.innerWidth - 420, (lastContextMenuEvent ? lastContextMenuEvent.clientX : 300) + 15)) + "px";
+        win.style.top = Math.max(20, Math.min(window.innerHeight - 380, (lastContextMenuEvent ? lastContextMenuEvent.clientY : 150) - 10)) + "px";
+        win.style.width = "400px";
+        win.style.maxHeight = "480px";
+        win.style.background = "#1a1a1a";
+        win.style.color = "#ddd";
+        win.style.border = "1px solid #555";
+        win.style.borderRadius = "8px";
+        win.style.boxShadow = "0 10px 30px rgba(0,0,0,0.85)";
+        win.style.zIndex = "2147483647";
+        win.style.fontFamily = "sans-serif";
+        win.style.display = "flex";
+        win.style.flexDirection = "column";
+        win.style.overflow = "hidden";
+        win.style.resize = "both";
+
+        // ヘッダー（ドラッグ移動可能）
+        const head = document.createElement("div");
+        head.style.padding = "8px 10px";
+        head.style.background = "#252525";
+        head.style.borderBottom = "1px solid #3a3a3a";
+        head.style.display = "flex";
+        head.style.justifyContent = "space-between";
+        head.style.alignItems = "center";
+        head.style.cursor = "grab";
+        head.style.userSelect = "none";
+
+        const title = document.createElement("span");
+        title.style.fontWeight = "bold";
+        title.style.fontSize = "13px";
+        title.style.color = "#4da3ff";
+        title.textContent = "📖 " + info.title;
+
+        const closeBtn = document.createElement("button");
+        closeBtn.textContent = "✕";
+        closeBtn.style.background = "transparent";
+        closeBtn.style.border = "none";
+        closeBtn.style.color = "#aaa";
+        closeBtn.style.cursor = "pointer";
+        closeBtn.style.fontSize = "14px";
+        closeBtn.onmouseenter = () => closeBtn.style.color = "#ff6b6b";
+        closeBtn.onmouseleave = () => closeBtn.style.color = "#aaa";
+        closeBtn.onclick = () => win.remove();
+
+        head.append(title, closeBtn);
+
+        // ヘッダードラッグ移動イベント
+        head.onmousedown = (e) => {
+            if (e.target === closeBtn) return;
+            e.preventDefault();
+            const startX = e.clientX - win.offsetLeft;
+            const startY = e.clientY - win.offsetTop;
+            const onMove = (ev) => {
+                win.style.left = Math.max(0, Math.min(window.innerWidth - win.offsetWidth, ev.clientX - startX)) + "px";
+                win.style.top = Math.max(0, Math.min(window.innerHeight - win.offsetHeight, ev.clientY - startY)) + "px";
+            };
+            const onUp = () => {
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+        };
+
+        // コンテンツ部
+        const body = document.createElement("div");
+        body.style.padding = "10px";
+        body.style.overflowY = "auto";
+        body.style.fontSize = "12px";
+        body.style.lineHeight = "1.5";
+        body.style.display = "flex";
+        body.style.flexDirection = "column";
+        body.style.gap = "8px";
+
+        // ブロック型名
+        const typeEl = document.createElement("div");
+        typeEl.style.background = "#242424";
+        typeEl.style.padding = "4px 8px";
+        typeEl.style.borderRadius = "4px";
+        typeEl.style.fontFamily = "monospace";
+        typeEl.style.fontSize = "11px";
+        typeEl.style.color = "#ffca28";
+        typeEl.textContent = "Block Type: " + info.blockType;
+        body.appendChild(typeEl);
+
+        // ツールチップ・説明文
+        const descEl = document.createElement("div");
+        descEl.style.background = "#222";
+        descEl.style.borderLeft = "3px solid #4da3ff";
+        descEl.style.padding = "8px";
+        descEl.style.whiteSpace = "pre-wrap";
+        descEl.style.color = "#eee";
+        descEl.textContent = info.tooltip;
+        body.appendChild(descEl);
+
+        // 入力ポート・パラメータ一覧
+        if (info.inputs && info.inputs.length > 0) {
+            const inLabel = document.createElement("div");
+            inLabel.textContent = "Inputs / Parameters:";
+            inLabel.style.fontWeight = "bold";
+            inLabel.style.color = "#aaa";
+            inLabel.style.marginTop = "4px";
+            body.appendChild(inLabel);
+
+            const inList = document.createElement("div");
+            inList.style.display = "flex";
+            inList.style.flexDirection = "column";
+            inList.style.gap = "3px";
+            info.inputs.forEach(inp => {
+                const itemEl = document.createElement("div");
+                itemEl.style.padding = "3px 6px";
+                itemEl.style.background = "#272727";
+                itemEl.style.borderRadius = "3px";
+                itemEl.style.display = "flex";
+                itemEl.style.justifyContent = "space-between";
+                itemEl.innerHTML = `<span>${inp.label}</span><span style="color:#888;font-size:10px;">${inp.check || "Any"}</span>`;
+                inList.appendChild(itemEl);
+            });
+            body.appendChild(inList);
+        }
+
+        // 公式ヘルプURLリンク
+        if (info.helpUrl) {
+            const linkBtn = document.createElement("a");
+            linkBtn.href = info.helpUrl;
+            linkBtn.target = "_blank";
+            linkBtn.rel = "noopener noreferrer";
+            linkBtn.textContent = "🌐 Open Official Documentation";
+            linkBtn.style.display = "inline-block";
+            linkBtn.style.marginTop = "6px";
+            linkBtn.style.padding = "5px 10px";
+            linkBtn.style.background = "#2a5298";
+            linkBtn.style.color = "#fff";
+            linkBtn.style.textDecoration = "none";
+            linkBtn.style.borderRadius = "4px";
+            linkBtn.style.textAlign = "center";
+            linkBtn.style.fontSize = "11px";
+            body.appendChild(linkBtn);
+        }
+
+        win.append(head, body);
+        document.body.appendChild(win);
+    }
+
     function renderList() {
         if (!listEl) return;
         listEl.innerHTML = "";
@@ -1737,6 +1949,18 @@
                 renderList();
             };
 
+            // ★ 行全体の右クリックでも選択＆メニューを開く
+            row.oncontextmenu = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!selectedIds.has(id)) {
+                    selectedIds.clear();
+                    selectedIds.add(id);
+                    lastSelected = id;
+                    renderList();
+                }
+                showMenu(e, item);
+            };
             const name = document.createElement("div");
             name.className = "jcs-name";
             name.style.borderLeftColor = state.palette[item.color || 0];
