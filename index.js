@@ -181,7 +181,6 @@
         });
     }
 
-    // ★ 変更があった瞬間にリアルタイムでボタンの見た目を更新する関数
     function updateHistoryButtons() {
         if (!panel) return;
         const undoBtn = panel.querySelector(".jcs-history-undo");
@@ -202,7 +201,6 @@
         }
     }
 
-    // 元に戻す（Undo）
     function doUndo() {
         if (undoStack.length === 0) return;
         isHistoryAction = true;
@@ -220,7 +218,6 @@
         updateHistoryButtons();
     }
 
-    // やり直す（Redo）
     function doRedo() {
         if (redoStack.length === 0) return;
         isHistoryAction = true;
@@ -239,7 +236,6 @@
     }
 
     function saveState() {
-        // ★ 操作履歴の即時自動記録
         if (!isHistoryAction) {
             const nextSnap = getSnapshotString();
             if (currentSnapshot === null) {
@@ -248,11 +244,10 @@
                 undoStack.push(currentSnapshot);
                 if (undoStack.length > MAX_HISTORY) undoStack.shift();
                 currentSnapshot = nextSnap;
-                redoStack = []; // 新しい操作が行われたらRedoをリセット
+                redoStack = [];
             }
         }
 
-        // ★ 変更があったその瞬間に即座にボタン表示を更新！
         updateHistoryButtons();
 
         idbSet("app_state", state).then(() => {
@@ -295,7 +290,6 @@
             state.filterChild.push(0);
         }
 
-        // ★ タブ文字色配列の安全チェック
         if (!Array.isArray(state.parentColors)) state.parentColors = Array(8).fill(null);
         while (state.parentColors.length < 8) state.parentColors.push(null);
 
@@ -538,7 +532,6 @@
     function exportData() {
         const data = {
             items: state.items,
-            // ★ アイコン画像の実体データ（スプライトPNGのBase64 ＆ 全元ソース配列）を完全に同梱
             iconAtlas: state.iconAtlas || null,
             config: {
                 parentCount: state.parentCount || 4,
@@ -561,7 +554,6 @@
         URL.revokeObjectURL(url);
     }
 
-    // 全体インポート（アイコン画像データも完全復元）
     function importData() {
         const input = document.createElement("input");
         input.type = "file"; input.accept = ".json,application/json";
@@ -576,7 +568,6 @@
 
                     if (Array.isArray(data.items)) state.items = data.items;
 
-                    // ★ アイコンスプライト画像データの復元
                     if (data.iconAtlas && data.iconAtlas.spriteUrl) {
                         state.iconAtlas = data.iconAtlas;
                     }
@@ -605,7 +596,6 @@
         input.click();
     }
 
-
     function exportCurrentTagData() {
         const pIdx = state.filterParent;
         const cIdx = state.filterChild[pIdx];
@@ -626,7 +616,6 @@
             parentName: pName,
             childName: cName,
             items: targetItems.map(i => {
-                // アイコンの元URL/データを特定して同梱
                 let iconSrc = null;
                 if (i.iconCoord && state.iconAtlas && Array.isArray(state.iconAtlas.sources)) {
                     const idx = Math.floor(i.iconCoord.x / (i.iconCoord.w || ICON_SIZE));
@@ -636,7 +625,7 @@
                     title: i.title,
                     body: i.body,
                     color: i.color || 0,
-                    iconSrc: iconSrc // ★ アイコン元データ
+                    iconSrc: iconSrc
                 };
             })
         };
@@ -652,7 +641,6 @@
         URL.revokeObjectURL(url);
     }
 
-    // タグ専用インポート（アイコン画像もスプライトに自動追加・マージ）
     function importCurrentTagData() {
         const pIdx = state.filterParent;
         const cIdx = state.filterChild[pIdx];
@@ -686,7 +674,6 @@
 
                     for (const item of importList) {
                         if (item && item.title) {
-                            // アイコン元データがあれば、スプライトアトラスへ安全に自動追加して座標取得
                             let iconCoord = null;
                             if (item.iconSrc) {
                                 try {
@@ -721,11 +708,9 @@
         input.click();
     }
 
+    const ICON_SIZE = 20;
+    let pendingIconCoord = null;
 
-    const ICON_SIZE = 20; // アイコンの一辺サイズ(px)
-    let pendingIconCoord = null; // 新規登録時に一時保持するアイコン座標
-
-    // ブロック先頭のアイコン画像を抽出
     function extractBlockIcon(block) {
         if (!block) return null;
         if (block.inputList) {
@@ -766,7 +751,6 @@
         return null;
     }
 
-    // アイコンをスプライトシート（アトラス画像）に統合して座標を返す（重複時は既存座標を返して容量節約）
     function getOrAddIconToAtlas(iconSrc) {
         if (!iconSrc) return Promise.resolve(null);
         if (!state.iconAtlas) {
@@ -781,7 +765,6 @@
 
         return new Promise(resolve => {
             const img = new Image();
-            // data: URI 以外の場合のみ crossOrigin を設定
             if (!iconSrc.startsWith("data:")) {
                 img.crossOrigin = "anonymous";
             }
@@ -962,7 +945,6 @@
             pasteBtn.onmouseleave = () => pasteBtn.style.background = "#3d4b3d";
         }
 
-        // --- showFolderMenu の pasteBtn 生成の直後に追加 ---
         const sepColor = document.createElement("div");
         sepColor.style.height = "1px";
         sepColor.style.background = "#444";
@@ -979,7 +961,6 @@
         colorRow.style.gap = "4px";
         colorRow.style.alignItems = "center";
 
-        // ✕ リセットボタン（デフォルト色に戻す）
         const resetColorBtn = makeButton("✕", () => {
             if (isParent) state.parentColors[index] = null;
             else state.childColors[state.filterParent][index] = null;
@@ -996,7 +977,6 @@
         resetColorBtn.style.color = "#888";
         colorRow.appendChild(resetColorBtn);
 
-        // 8色カラーボタン
         state.palette.slice(0, COLOR_COUNT).forEach((c, cIdx) => {
             const b = makeButton("", () => {
                 if (isParent) state.parentColors[index] = cIdx;
@@ -1015,7 +995,6 @@
             colorRow.appendChild(b);
         });
 
-        // ボックスにアペンド（カラー行を最下部に追加）
         box.append(t, input, rowBtn, sep, copyBtn, pasteBtn, sepColor, colorLabel, colorRow);
         document.body.appendChild(box);
         input.focus();
@@ -1042,20 +1021,6 @@
         menu.style.left = Math.min(rect.left, window.innerWidth - 220) + "px";
         menu.style.top = (rect.bottom + 4) + "px";
 
-        // ★ PORTAL アイコン画像一括書き出しボタン
-        const iconExpBtn = makeButton("🖼️ EXPORT ICONS (PNG)", () => {
-            menu.remove();
-            exportPortalIconsAsPng();
-        }, "jcs-menu-btn");
-        iconExpBtn.style.background = "#2a5298";
-        iconExpBtn.style.fontWeight = "bold";
-        iconExpBtn.onmouseenter = () => iconExpBtn.style.background = "#3b6fc9";
-        iconExpBtn.onmouseleave = () => iconExpBtn.style.background = "#2a5298";
-
-        const sep0 = document.createElement("div");
-        sep0.className = "jcs-menu-sep";
-
-        // 1. 全体 EXPORT / IMPORT ボタン
         const expBtn = makeButton("EXPORT", () => { exportData(); menu.remove(); }, "jcs-menu-btn");
         const impBtn = makeButton("IMPORT", () => { importData(); menu.remove(); }, "jcs-menu-btn");
 
@@ -1187,7 +1152,6 @@
         const preservedTitle = titleEl ? titleEl.value : null;
         const preservedBody = bodyEl ? bodyEl.value : null;
 
-        // ★ 画面上にツリーがあれば最新のスクロール位置を確実に退避
         const prevTreeNav = panel.querySelector(".jcs-tree-nav");
         if (prevTreeNav && prevTreeNav.scrollTop > 0) {
             lastTreeNavScrollTop = prevTreeNav.scrollTop;
@@ -1204,13 +1168,11 @@
         ttl.className = "jcs-title";
         ttl.textContent = isCollapsed ? "🐛JS Stock ▶" : "🐛JS Stock ▼";
 
-        // ★ タイトルに直接ドラッグ＆最小化トグルをバインド！
         attachTitleDragAndToggle(ttl);
 
         const tools = document.createElement("div");
         tools.className = "jcs-tools";
 
-        // ★ Undo ボタン（↩️）
         const canUndo = (undoStack.length > 0);
         const undoBtn = makeButton("↩️", () => {
             if (undoStack.length > 0) doUndo();
@@ -1218,7 +1180,6 @@
         undoBtn.title = canUndo ? `Undo (元に戻す) [残り${undoStack.length}回]` : "Undo (履歴なし)";
         undoBtn.disabled = !canUndo;
 
-        // ★ Redo ボタン（↪️）
         const canRedo = (redoStack.length > 0);
         const redoBtn = makeButton("↪️", () => {
             if (redoStack.length > 0) doRedo();
@@ -1226,21 +1187,18 @@
         redoBtn.title = canRedo ? `Redo (やり直す) [残り${redoStack.length}回]` : "Redo (履歴なし)";
         redoBtn.disabled = !canRedo;
 
-        // ⚙️ 設定ボタン
         const gearBtn = makeButton("⚙️", (e) => {
             e.stopPropagation();
             showSettingsMenu(gearBtn);
         }, "jcs-gear");
         gearBtn.title = "Settings (EXPORT / IMPORT / Tab Count)";
 
-        // 🔒️ ピン留めボタン
         const pinBtn = makeButton(isPinned ? "🔒️" : "🔓️", () => {
             isPinned = !isPinned;
             renderPanel();
         }, "jcs-pin" + (isPinned ? "" : " unlocked"));
         pinBtn.title = isPinned ? "Locked (Keep open)" : "Unlocked (Auto close)";
 
-        // ✕ 閉じるボタン
         const close = makeButton("✕", closePanel, "jcs-close");
         close.title = "Close";
 
@@ -1262,13 +1220,12 @@
             panel.style.height = savedPanelHeight;
         }
 
-        // 親タブ
         const parentTabs = document.createElement("div");
         parentTabs.className = "jcs-tabs";
         state.parents.slice(0, state.parentCount).forEach((name, i) => {
             const isActive = (searchScope === "TAB" && state.filterParent === i);
             const b = makeButton(name, () => {
-                searchScope = "TAB"; // タブ選択時はTABモードへ自動復帰
+                searchScope = "TAB";
                 state.filterParent = i;
                 renderPanel();
             }, "jcs-tab" + (isActive ? " active" : ""));
@@ -1279,13 +1236,12 @@
             parentTabs.appendChild(b);
         });
 
-        // 子タブ
         const childTabs = document.createElement("div");
         childTabs.className = "jcs-tabs jcs-child";
         (state.children[state.filterParent] || []).slice(0, state.childCount).forEach((name, i) => {
             const isActive = (searchScope === "TAB" && state.filterChild[state.filterParent] === i);
             const b = makeButton(name, () => {
-                searchScope = "TAB"; // タブ選択時はTABモードへ自動復帰
+                searchScope = "TAB";
                 state.filterChild[state.filterParent] = i;
                 renderPanel();
             }, "jcs-tab" + (isActive ? " active" : ""));
@@ -1333,7 +1289,6 @@
         titleWrap.style.alignItems = "center";
         titleWrap.style.position = "relative";
 
-        // ★ 名称入力欄の左に表示するアイコンプレビュー枠
         inputIconPreview = document.createElement("div");
         inputIconPreview.className = "jcs-input-icon-preview";
         inputIconPreview.style.width = "20px";
@@ -1349,12 +1304,13 @@
         titleEl.style.flex = "1";
         const clearTitle = makeButton("✕", () => {
             titleEl.value = "";
-            pendingIconCoord = null; // ★ アイコンデータも初期化
-            updateInputIconPreview(); // ★ プレビューも消去
+            pendingIconCoord = null;
+            updateInputIconPreview();
             titleEl.focus();
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
         updateInputIconPreview();
+
         const bodyWrap = document.createElement("div");
         bodyWrap.className = "jcs-input-wrapper";
         bodyEl = document.createElement("textarea");
@@ -1388,7 +1344,7 @@
             if (inputHidden) {
                 editingIdValue = null;
                 lastEditingId = null;
-                pendingIconCoord = null; // ★ 閉じた時にアイコンもリセット
+                pendingIconCoord = null;
                 pendingBlockTitle = null;
                 pendingBlockBody = null;
             }
@@ -1402,7 +1358,6 @@
             inputRow.classList.add("jcs-hidden");
             colorTabs.classList.add("jcs-hidden");
         } else if (hasEditingId()) {
-            // ★ 安全なID比較でアイテムを確実に特定
             const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
             if (item) {
                 titleEl.value = item.title || "";
@@ -1427,7 +1382,6 @@
             titleEl.style.paddingLeft = "6px";
         }
 
-
         const filter = document.createElement("div");
         filter.className = "jcs-filter";
         const fc = document.createElement("div");
@@ -1448,21 +1402,18 @@
             fc.appendChild(b);
         });
 
-        // ▼▼▼▼▼ ここから差し替えコード ▼▼▼▼▼
         const searchRow = document.createElement("div");
         searchRow.style.display = "flex";
         searchRow.style.gap = "4px";
         searchRow.style.marginTop = "3px";
         searchRow.style.alignItems = "center";
 
-        // TAB / ALL 切り替えボタン
         const scopeBtn = makeButton(searchScope, () => {
             searchScope = (searchScope === "TAB") ? "ALL" : "TAB";
             renderPanel();
         }, "jcs-scope-btn" + (searchScope === "ALL" ? " active" : ""));
         scopeBtn.title = (searchScope === "TAB") ? "Search in current tab" : "Search in ALL data";
 
-        // 検索枠 ＋ ✕クリアボタンのラッパー
         const searchWrap = document.createElement("div");
         searchWrap.className = "jcs-input-wrapper";
         searchWrap.style.flex = "1";
@@ -1476,14 +1427,13 @@
         searchEl.style.marginTop = "0";
         searchEl.placeholder = (searchScope === "ALL") ? "🔎search in ALL data..." : "🔎search in current tab...";
 
-        // ★ ✕ クリアボタン（文字がある時だけ表示）
         const clearSearch = makeButton("✕", () => {
             searchEl.value = "";
             clearSearch.style.display = "none";
             renderList();
             searchEl.focus();
         }, "jcs-clear");
-        clearSearch.style.display = "none"; // 初期は非表示
+        clearSearch.style.display = "none";
 
         searchEl.oninput = () => {
             clearSearch.style.display = searchEl.value.trim() ? "block" : "none";
@@ -1493,7 +1443,6 @@
         searchWrap.append(searchEl, clearSearch);
         searchRow.append(scopeBtn, searchWrap);
         filter.append(fc, searchRow);
-        // ▲▲▲▲▲ ここまで差し替えコード ▲▲▲▲▲
 
         const bodyHead = document.createElement("div");
         bodyHead.className = "jcs-body-head";
@@ -1519,12 +1468,10 @@
                 const pName = state.parents[p] || ("P" + p);
                 if (String(pName).trim() === "-") continue;
 
-                // 親項目 [ 親A ]
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent";
                 pEl.textContent = pName;
 
-                // ★ 親の文字色が設定されていれば反映
                 const pColorIdx = state.parentColors ? state.parentColors[p] : null;
                 if (pColorIdx !== null && pColorIdx !== undefined && state.palette[pColorIdx]) {
                     pEl.style.color = state.palette[pColorIdx];
@@ -1540,14 +1487,12 @@
                 };
                 treeNav.appendChild(pEl);
 
-                // 子項目 [ 子A-1 ] 〜 [ 子A-8 ]
                 const cList = state.children[p] || [];
                 for (let c = 0; c < state.childCount; c++) {
                     const cName = cList[c] || (state.parents[p] + "-" + (c + 1));
                     if (String(cName).trim() === "-") continue;
 
                     const cEl = document.createElement("div");
-                    // ★ ALL検索時は選択ハイライトを解除
                     const isActive = (searchScope === "TAB" && state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
                     cEl.textContent = cName;
@@ -1558,7 +1503,7 @@
                     }
 
                     cEl.onclick = () => {
-                        searchScope = "TAB"; // ★ タブクリックでTABスコープへ復帰して選択
+                        searchScope = "TAB";
                         state.filterParent = p;
                         state.filterChild[p] = c;
                         renderPanel();
@@ -1573,12 +1518,10 @@
 
             mainPane.appendChild(treeNav);
 
-            // ★ ユーザーがスクロールした位置をリアルタイムに記録
             treeNav.addEventListener("scroll", () => {
                 lastTreeNavScrollTop = treeNav.scrollTop;
             }, { passive: true });
 
-            // ★ 記憶していたスクロール位置を瞬時に復元して固定！
             treeNav.scrollTop = lastTreeNavScrollTop;
             requestAnimationFrame(() => {
                 if (treeNav) treeNav.scrollTop = lastTreeNavScrollTop;
@@ -1604,13 +1547,81 @@
 
     function hasEditingId() { return !!editingIdValue; }
 
+    // ★ リスト項目名（タイトル）のインライン右クリック変更処理
+    function startInlineRename(item, nameEl, titleTextEl) {
+        if (nameEl.querySelector(".jcs-inline-rename")) return;
+
+        const originalTitle = item.title || "";
+        titleTextEl.style.display = "none";
+
+        const editInput = document.createElement("input");
+        editInput.type = "text";
+        editInput.className = "jcs-inline-rename";
+        editInput.value = originalTitle;
+        editInput.style.flex = "1";
+        editInput.style.background = "#1a1a1a";
+        editInput.style.color = "#fff";
+        editInput.style.border = "1px solid #4da3ff";
+        editInput.style.borderRadius = "2px";
+        editInput.style.fontSize = "15px";
+        editInput.style.padding = "1px 4px";
+        editInput.style.margin = "0";
+        editInput.style.outline = "none";
+        editInput.style.boxSizing = "border-box";
+        editInput.style.minWidth = "60px";
+
+        // マウスやコンテキストメニューの伝播を抑止
+        editInput.addEventListener("mousedown", e => e.stopPropagation());
+        editInput.addEventListener("click", e => e.stopPropagation());
+        editInput.addEventListener("contextmenu", e => e.stopPropagation());
+
+        let finished = false;
+        const commit = () => {
+            if (finished) return;
+            finished = true;
+            const newTitle = editInput.value.trim();
+            if (newTitle && newTitle !== originalTitle) {
+                item.title = newTitle;
+                saveState();
+            }
+            renderList();
+        };
+
+        const cancel = () => {
+            if (finished) return;
+            finished = true;
+            renderList();
+        };
+
+        editInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+            } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancel();
+            }
+        });
+
+        editInput.addEventListener("blur", () => {
+            commit();
+        });
+
+        nameEl.appendChild(editInput);
+
+        // フォーカスして、カーソルを一番左に設定
+        editInput.focus();
+        if (typeof editInput.setSelectionRange === "function") {
+            editInput.setSelectionRange(0, 0);
+        }
+    }
+
     function renderList() {
         if (!listEl) return;
         listEl.innerHTML = "";
 
         const currentTabKey = `${state.filterParent}_${state.filterChild[state.filterParent]}`;
 
-        // ★ ユーザーがスクロールした位置をリアルタイムにタブごとに記憶
         listEl.addEventListener("scroll", () => {
             listScrollPositions.set(currentTabKey, listEl.scrollTop);
         }, { passive: true });
@@ -1619,13 +1630,11 @@
         let filtered;
 
         if (searchScope === "ALL") {
-            // ★ ALL検索時：全タブ・全データから横断検索
             filtered = state.items.filter(item =>
                 (state.filterColor === null || (item.color || 0) === state.filterColor) &&
                 String(item.title).toLowerCase().includes(q)
             );
         } else {
-            // ★ TAB検索時：現在選択中のタブ内のみ検索
             filtered = state.items.filter(item =>
                 item.parent === state.filterParent &&
                 item.child === state.filterChild[state.filterParent] &&
@@ -1651,8 +1660,10 @@
             drag.textContent = "≡";
             drag.draggable = true;
 
+            // 一番左のドラッグハンドル上の右クリックは従来通りのメニュー
             drag.oncontextmenu = (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 if (!selectedIds.has(id)) {
                     selectedIds.clear();
                     selectedIds.add(id);
@@ -1740,7 +1751,7 @@
             const name = document.createElement("div");
             name.className = "jcs-name";
             name.style.borderLeftColor = state.palette[item.color || 0];
-            name.title = "Drag to place in workspace / Click to copy";
+            name.title = "Drag to place in workspace / Click to copy / Right click to rename";
 
             if (item.iconCoord && state.iconAtlas && state.iconAtlas.spriteUrl) {
                 const iconEl = document.createElement("div");
@@ -1759,7 +1770,6 @@
             titleText.textContent = item.title;
             name.appendChild(titleText);
 
-            // ★ ALL検索時は、所属しているフォルダ名バッジ（例: [A > A-1]）を表示
             if (searchScope === "ALL") {
                 const pName = state.parents[item.parent] || ("P" + item.parent);
                 const cName = (state.children[item.parent] && state.children[item.parent][item.child]) || ("C" + item.child);
@@ -1770,6 +1780,13 @@
             }
 
             attachDragOutListener(item, name);
+
+            // ★ リスト項目上での右クリックでインライン名称変更を開始
+            name.oncontextmenu = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                startInlineRename(item, name, titleText);
+            };
 
             const actions = document.createElement("div");
             actions.className = "jcs-actions";
@@ -1830,9 +1847,7 @@
         };
         listEl.appendChild(endDrop);
 
-        // ★ スクロール位置の制御
         if (scrollToBottomOnRender && listEl) {
-            // 新規ADD直後は一番下（末尾）へスクロール
             scrollToBottomOnRender = false;
             requestAnimationFrame(() => {
                 if (listEl) {
@@ -1841,7 +1856,6 @@
                 }
             });
         } else if (listEl) {
-            // ★ 入力欄オープン時やタブ切り替え時：記憶されたそのタブの位置を復元！
             const targetScrollTop = listScrollPositions.get(currentTabKey) || 0;
             listEl.scrollTop = targetScrollTop;
             requestAnimationFrame(() => {
@@ -1858,7 +1872,6 @@
             listEl.appendChild(empty);
         }
     }
-
 
     function showMenu(e, targetItem) {
         const old = document.getElementById("popupMenu");
@@ -2145,7 +2158,6 @@
 
             e.preventDefault();
 
-            const startX = e.clientX, startY = e.clientY;
             let isDragging = false;
             let createdBlock = null;
             let ws = null;
@@ -2156,7 +2168,6 @@
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
                     moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
 
-                // パネル外へ出た瞬間にブロック生成
                 if (!isDragging && isOutside) {
                     isDragging = true;
                     ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
@@ -2164,7 +2175,6 @@
                         createdBlock = createBlockInstance(ws, item);
                     }
 
-                    // ★ 非固定（🔓️）時は、ウィンドウの枠を出た瞬間に即座にパネルを閉じる！
                     if (isTempExpanded) {
                         isTempExpanded = false;
                         isCollapsed = true;
@@ -2174,7 +2184,6 @@
                     }
                 }
 
-                // ★ マウスカーソルにブロックをぴったり吸着追従（途中で落とさない）
                 if (isDragging && createdBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
@@ -2188,21 +2197,17 @@
             };
 
             const onMouseUp = (upEvent) => {
-                // ★ マウスを離した瞬間にリスナーを完全解除（カーソルに張り付いて離れなくなるのを完全防止）
                 document.removeEventListener("mousemove", onMouseMove);
                 document.removeEventListener("mouseup", onMouseUp);
 
                 if (isDragging) {
                     if (createdBlock && ws) {
-                        // ドロップした最終位置に配置
                         const coords = getWorkspaceCoords(ws, upEvent);
                         const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                         if (typeof createdBlock.moveTo === "function") {
                             createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
                         }
                         if (typeof createdBlock.render === "function") createdBlock.render();
-
-                        // ★ 離した位置で、近くのブロックの中や間に自動でパチンと結合！
                         autoConnectBlock(createdBlock);
 
                         if (typeof createdBlock.select === "function") createdBlock.select();
@@ -2212,7 +2217,6 @@
                         closePanel();
                     }
                 } else {
-                    // 移動せずクリックした場合はスマート配置処理を実行
                     handleItemClick(item, nameEl);
                 }
             };
@@ -2221,24 +2225,21 @@
             document.addEventListener("mouseup", onMouseUp);
         });
     }
-    // クリック配置時の座標計算（固定時はウィンドウの中央右/左、非固定時はメニュー起動位置）
+
     function getClickPasteCoords(ws) {
         if (isPinned && panel) {
-            // ★ 🔒️ 表示固定時：CodeStockウィンドウの中央右（スペースがなければ左）
             const rect = panel.getBoundingClientRect();
             const vw = window.innerWidth;
 
-            const cy = rect.top + rect.height / 2; // ウィンドウの縦中央
-            let cx = rect.right + 25; // ウィンドウの右横25px
+            const cy = rect.top + rect.height / 2;
+            let cx = rect.right + 25;
 
-            // 右側にブロックを置く余白（約220px）がない場合は左側に配置
             if (cx + 200 > vw) {
                 cx = Math.max(20, rect.left - 230);
             }
 
             return getWorkspaceCoords(ws, { clientX: cx, clientY: cy });
         } else {
-            // ★ 🔓️ 非固定時：右クリックメニューからCodeStockを起動した元の位置
             const ev = lastContextMenuEvent || lastMouseEvent;
             if (ev) {
                 return getWorkspaceCoords(ws, ev);
@@ -2247,7 +2248,6 @@
         }
     }
 
-    // 指定座標にブロックを安全に生成・配置・結合する関数
     function pasteBlockAt(ws, item, targetCoords) {
         const createdBlock = createBlockInstance(ws, item);
         if (!createdBlock) return null;
@@ -2259,7 +2259,6 @@
         if (typeof createdBlock.render === "function") createdBlock.render();
         if (typeof createdBlock.select === "function") createdBlock.select();
 
-        // 近くのブロックがあれば自動結合
         autoConnectBlock(createdBlock);
         return createdBlock;
     }
@@ -2268,24 +2267,18 @@
         const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
 
         if (ws) {
-            // 1. 固定/非固定に応じた配置座標を算出
             const coords = getClickPasteCoords(ws);
-
-            // 2. ブロックをワークスペースへ配置
             pasteBlockAt(ws, item, coords);
             setStatus("Pasted into workspace");
         } else {
-            // ワークスペースが無ければクリップボードコピー
             copyText(item.body).then(() => setStatus("COPY OK!"));
         }
 
-        // 3. 表示固定でない場合、または一時展開されていた場合は閉じる
         if (isTempExpanded) {
             isTempExpanded = false;
             isCollapsed = true;
             renderPanel();
         } else if (!isPinned) {
-            // ★ 非固定（🔓️）時はクリック後にパネルを閉じる
             closePanel();
         }
     }
@@ -2477,53 +2470,6 @@
         }
     }
 
-    async function pasteSerializedStock(text) {
-        const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
-        if (!ws) throw new Error("No workspace available");
-        let data;
-        try { data = JSON.parse(text); }
-        catch (_) { throw new Error("Code Stock entry is not valid JSON"); }
-
-        const varDefs = extractVariableDefinitions(data);
-        if (varDefs.length > 0) registerVariablesBeforePaste(ws, varDefs);
-        data = renameSubroutineIfNeeded(ws, data);
-        data = sanitizeForWorkspace(ws, data);
-
-        const originalX = typeof data.x === "number" ? data.x : ((data.blocks && data.blocks[0] && data.blocks[0].x) || 0);
-        const originalY = typeof data.y === "number" ? data.y : ((data.blocks && data.blocks[0] && data.blocks[0].y) || 0);
-        let mousePos = null;
-        try {
-            let canvas = typeof ws.getCanvas === "function" ? ws.getCanvas() : null;
-            if (!canvas) canvas = document.querySelector(".blocklyBlockCanvas");
-            const pointerEvent = lastContextMenuEvent || lastMouseEvent;
-            if (pointerEvent && canvas && canvas.ownerSVGElement && typeof canvas.getScreenCTM === "function") {
-                const pt = canvas.ownerSVGElement.createSVGPoint();
-                pt.x = pointerEvent.clientX; pt.y = pointerEvent.clientY;
-                const ctm = canvas.getScreenCTM();
-                if (ctm && typeof ctm.inverse === "function") {
-                    const p = pt.matrixTransform(ctm.inverse());
-                    mousePos = { x: p.x, y: p.y };
-                }
-            }
-        } catch (_) { }
-        if (!mousePos) {
-            try { mousePos = plugin.getMouseCoords ? plugin.getMouseCoords() : null; } catch (_) { }
-        }
-        if (!mousePos) {
-            const metrics = ws.getMetrics ? ws.getMetrics() : {};
-            mousePos = { x: (metrics.viewLeft || 0) + (metrics.viewWidth || 0) / 2, y: (metrics.viewTop || 0) + (metrics.viewHeight || 0) / 2 };
-        }
-        const dx = mousePos.x - originalX, dy = mousePos.y - originalY;
-        traverseSerializedBlocks(data, b => { b.x = (b.x || 0) + dx; b.y = (b.y || 0) + dy; });
-
-        if (_Blockly.serialization && _Blockly.serialization.blocks && typeof _Blockly.serialization.blocks.append === "function") {
-            _Blockly.serialization.blocks.append(data, ws);
-        } else if (data._legacyXml && typeof Blockly !== "undefined" && Blockly.Xml) {
-            const dom = Blockly.Xml.textToDom(data._legacyXml);
-            Blockly.Xml.domToWorkspace(dom, ws);
-        } else throw new Error("No compatible Blockly paste API");
-    }
-
     function blockTypeName(data) {
         if (!data) return "Code";
         if (data.type) return String(data.type);
@@ -2535,8 +2481,6 @@
         editingIdValue = null;
         inputHidden = true;
 
-        // ★ 勝手な親0・子0へのリセット処理を完全撤廃（直前のタブを維持）
-
         if (isCollapsed) {
             isTempExpanded = true;
             isCollapsed = false;
@@ -2547,9 +2491,8 @@
         setStatus("Select or drag a code entry into workspace");
     }
 
-    let inputIconPreview = null; // 入力欄左のアイコンプレビュー要素
+    let inputIconPreview = null;
 
-    // 名称入力欄の左のアイコン表示を更新
     function updateInputIconPreview() {
         if (!inputIconPreview) return;
         let coord = pendingIconCoord;
@@ -2566,7 +2509,7 @@
             inputIconPreview.style.backgroundRepeat = "no-repeat";
         } else {
             inputIconPreview.style.display = "none";
-            inputIconPreview.style.backgroundImage = "none"; // ★ アイコン画像を明示的に消去
+            inputIconPreview.style.backgroundImage = "none";
         }
     }
 
@@ -2584,7 +2527,7 @@
             interactionMode = "blockEntry";
             editingIdValue = null;
             lastEditingId = null;
-            inputHidden = false; // 入力パネルを開く
+            inputHidden = false;
 
             pendingBlockTitle = blockTypeName(data);
             pendingBlockBody = JSON.stringify(data, null, 2);
@@ -2597,14 +2540,13 @@
             openPanel();
             setStatus("Block copied — ADD to save, CANCEL to close");
 
-            // ★ アイコンをバックグラウンド取得し、完了したら即座に入力欄左にプレビュー表示
             pendingIconCoord = null;
             try {
                 const iconSrc = extractBlockIcon(block);
                 if (iconSrc) {
                     getOrAddIconToAtlas(iconSrc).then(coord => {
                         pendingIconCoord = coord;
-                        updateInputIconPreview(); // ★ プレビューを表示！
+                        updateInputIconPreview();
                     }).catch(() => { });
                 } else {
                     updateInputIconPreview();
@@ -2628,7 +2570,6 @@
             const c = (state.filterChild && state.filterChild[p]) || 0;
 
             if (editingIdValue) {
-                // EDIT（UPDATE更新）時
                 const item = state.items.find(x => x && x.id === editingIdValue);
                 if (item) {
                     item.title = title;
@@ -2641,7 +2582,6 @@
                     }
                 }
             } else {
-                // ADD（新規追加）時
                 state.items.push({
                     id: uid(),
                     title: title,
@@ -2658,7 +2598,6 @@
             console.error("[JS Code Stock] addItem error:", err);
         }
 
-        // ★ 1. アイコン・編集ID・入力モードを完全に初期化
         pendingIconCoord = null;
         editingIdValue = null;
         lastEditingId = null;
@@ -2667,7 +2606,6 @@
         pendingBlockTitle = null;
         pendingBlockBody = null;
 
-        // ★ 2. 入力欄・プレビューアイコンを完全に消去
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
         if (inputIconPreview) {
@@ -2675,7 +2613,6 @@
             inputIconPreview.style.backgroundImage = "none";
         }
 
-        // ★ 3. 入力欄を閉じる
         inputHidden = true;
 
         try { saveState(); } catch (_) { }
@@ -2687,88 +2624,6 @@
             return;
         }
 
-        if (!isPinned) {
-            closePanel();
-            return;
-        }
-
-        renderPanel();
-    }
-
-    function nextOrder() {
-        const group = state.items.filter(x =>
-            x.parent === state.filterParent &&
-            x.child === state.filterChild[state.filterParent]
-        );
-        return group.length;
-    }
-
-    // アイテムの追加・更新（何があっても確実にクリア＆閉じる鉄壁処理）
-    function addItem() {
-        try {
-            const title = titleEl && titleEl.value.trim();
-            const body = bodyEl ? bodyEl.value : "";
-            if (!title) return setStatus("Code name is required");
-
-            const p = state.filterParent || 0;
-            const c = (state.filterChild && state.filterChild[p]) || 0;
-
-            if (editingIdValue) {
-                // EDIT（更新）時
-                const item = state.items.find(x => x && x.id === editingIdValue);
-                if (item) {
-                    item.title = title;
-                    item.body = body;
-                    item.parent = p;
-                    item.child = c;
-                    item.color = state.currentColor || 0;
-                }
-            } else {
-                // ★ 新規追加時（安全に末尾追加）
-                state.items.push({
-                    id: uid(),
-                    title: title,
-                    body: body,
-                    parent: p,
-                    child: c,
-                    order: nextOrder(),
-                    color: state.currentColor || 0,
-                    iconCoord: pendingIconCoord || null
-                });
-                scrollToBottomOnRender = true;
-            }
-        } catch (err) {
-            console.error("[JS Code Stock] addItem error:", err);
-        }
-
-        // ★ 1. 状態を完全リセット
-        pendingIconCoord = null;
-        editingIdValue = null;
-        lastEditingId = null;
-        interactionMode = "normal";
-        pendingBlockData = null;
-        pendingBlockTitle = null;
-        pendingBlockBody = null;
-
-        // ★ 2. 入力欄を完全にクリア
-        if (titleEl) titleEl.value = "";
-        if (bodyEl) bodyEl.value = "";
-        if (inputIconPreview) inputIconPreview.style.display = "none";
-
-        // ★ 3. 入力欄を確実に閉じる（新規ADDでも100%実行）
-        inputHidden = true;
-
-        try { saveState(); } catch (_) { }
-
-        // 一時展開されていた場合は折りたたみ
-        if (isTempExpanded) {
-            isTempExpanded = false;
-            isCollapsed = true;
-            renderPanel();
-            return;
-        }
-
-        // アンロック（🔓️）状態ならパネルごと閉じる
         if (!isPinned) {
             closePanel();
             return;
@@ -2799,12 +2654,10 @@
         state.filterChild[p] = c;
         state.currentColor = (item.color !== undefined) ? Number(item.color) : 0;
 
-        // ★ 入力欄を確実に開く
         inputHidden = false;
 
         renderPanel();
 
-        // ★ 描画直後にテキストと色を確実にセット
         if (titleEl) {
             titleEl.value = item.title || "";
             titleEl.style.borderLeft = "6px solid " + (state.palette[state.currentColor] || "#fff");
@@ -2815,12 +2668,10 @@
             bodyEl.value = item.body || "";
         }
 
-        // アイコンプレビューも即時更新
         updateInputIconPreview();
     }
 
     function cancelEdit() {
-        // ★ アイコン・一時データを確実にリセット
         pendingIconCoord = null;
         pendingBlockTitle = null;
         pendingBlockBody = null;
@@ -2864,13 +2715,12 @@
             .forEach((x, i) => x.order = i);
     }
 
-    // タイトル要素に直接ドラッグ移動＆クリック最小化をバインド（確実に動作する方式）
     function attachTitleDragAndToggle(titleEl) {
         titleEl.style.cursor = "grab";
         titleEl.title = "Click to collapse/expand (Drag to move)";
 
         titleEl.addEventListener("mousedown", (e) => {
-            if (e.button !== 0) return; // 左クリックのみ
+            if (e.button !== 0) return;
 
             e.preventDefault();
             titleEl.style.cursor = "grabbing";
@@ -2882,7 +2732,6 @@
 
             const onMove = (ev) => {
                 const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
-                // 4px以上動いたら「ドラッグ移動」と判定
                 if (dist > 4) {
                     hasMoved = true;
                     const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
@@ -2901,12 +2750,10 @@
                 if (hasMoved) {
                     saveWindowBounds();
                 } else {
-                    // ★ 展開状態から最小化する直前に、現在の幅・高さを確実に保存
                     if (!isCollapsed) {
                         saveWindowBounds();
                     }
 
-                    // ★ 最小化する直前のツリースクロール位置を保護
                     const currentTree = panel.querySelector(".jcs-tree-nav");
                     if (currentTree && currentTree.scrollTop > 0) {
                         lastTreeNavScrollTop = currentTree.scrollTop;
@@ -2932,7 +2779,6 @@
             panel.id = "js-code-stock-panel";
             document.body.appendChild(panel);
 
-            // ★ リサイズ操作を検知して幅・高さを自動保存
             let resizeTimer = null;
             const ro = new ResizeObserver(() => {
                 if (isCollapsed || panel.style.display === "none") return;
@@ -2959,7 +2805,6 @@
             listScrollPositions.set(currentTabKey, listEl.scrollTop);
         }
 
-        // ★ パネルを閉じる直前に左ツリーのスクロール位置も確実に記憶
         if (panel) {
             const currentTree = panel.querySelector(".jcs-tree-nav");
             if (currentTree && currentTree.scrollTop > 0) {
