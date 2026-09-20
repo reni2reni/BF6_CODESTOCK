@@ -2236,9 +2236,8 @@
             e.preventDefault();
 
             let isDragging = false;
-            let createdBlock = null;
+            let previewBlock = null;
             let ws = null;
-            const B = _Blockly || window.Blockly;
 
             const onMouseMove = (moveEvent) => {
                 if (!panel) return;
@@ -2246,15 +2245,15 @@
                 const isOutside = moveEvent.clientX < rect.left || moveEvent.clientX > rect.right ||
                     moveEvent.clientY < rect.top || moveEvent.clientY > rect.bottom;
 
-                // 1. ドラッグ開始：ドラッグ中の余計なマウス移動を無視するため、ここで履歴記録を一時停止！
+                // ドラッグ開始：マウス追従用のプレビューを表示
                 if (!isDragging && isOutside) {
                     isDragging = true;
                     ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
                     if (ws) {
-                        if (B.Events && typeof B.Events.disable === "function") {
-                            B.Events.disable();
-                        }
-                        createdBlock = createBlockInstance(ws, item);
+                        const B = _Blockly || window.Blockly;
+                        if (B.Events && typeof B.Events.disable === "function") B.Events.disable();
+                        previewBlock = createBlockInstance(ws, item);
+                        if (B.Events && typeof B.Events.enable === "function") B.Events.enable();
                     }
 
                     if (isTempExpanded) {
@@ -2266,15 +2265,15 @@
                     }
                 }
 
-                // 2. ドラッグ中：履歴は停止中なので、何百回マウスが動いてもUNDOスタックは汚れない（超軽量）
-                if (isDragging && createdBlock && ws) {
+                // マウス追従移動
+                if (isDragging && previewBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
-                    if (typeof createdBlock.moveTo === "function") {
-                        createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
+                    if (typeof previewBlock.moveTo === "function") {
+                        previewBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
                     }
-                    if (typeof createdBlock.select === "function") {
-                        createdBlock.select();
+                    if (typeof previewBlock.select === "function") {
+                        previewBlock.select();
                     }
                 }
             };
@@ -2284,40 +2283,19 @@
                 document.removeEventListener("mouseup", onMouseUp);
 
                 if (isDragging) {
-                    // 3. 指を離した瞬間：履歴記録を再開！
-                    if (B.Events && typeof B.Events.enable === "function") {
-                        B.Events.enable();
-                    }
-
-                    if (createdBlock && ws) {
-                        // ★ 置いた瞬間だけを1つのUNDO履歴にまとめる
-                        const dropGroupId = (B.utils && B.utils.genUid) ? B.utils.genUid() : ("jcs_drop_" + Date.now());
-                        if (B.Events && typeof B.Events.setGroup === "function") {
-                            B.Events.setGroup(dropGroupId);
+                    if (ws) {
+                        const B = _Blockly || window.Blockly;
+                        // 1. ドラッグ中の移動履歴を持ったプレビュー用ブロックを静かに消去
+                        if (previewBlock) {
+                            if (B.Events && typeof B.Events.disable === "function") B.Events.disable();
+                            try { previewBlock.dispose(false); } catch (_) { }
+                            if (B.Events && typeof B.Events.enable === "function") B.Events.enable();
+                            previewBlock = null;
                         }
 
-                        try {
-                            // 「置いた瞬間の作成」をUNDOに1つ登録
-                            const CreateEvent = B.Events.BlockCreate || B.Events.Create;
-                            if (typeof CreateEvent === "function" && B.Events.fire) {
-                                try { B.Events.fire(new CreateEvent(createdBlock)); } catch (_) { }
-                            }
-
-                            // 最終位置と接続
-                            const coords = getWorkspaceCoords(ws, upEvent);
-                            const Coordinate = (B.utils && B.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
-                            if (typeof createdBlock.moveTo === "function") {
-                                createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
-                            }
-                            if (typeof createdBlock.render === "function") createdBlock.render();
-                            autoConnectBlock(createdBlock);
-
-                            if (typeof createdBlock.select === "function") createdBlock.select();
-                        } finally {
-                            if (B.Events && typeof B.Events.setGroup === "function") {
-                                B.Events.setGroup(false);
-                            }
-                        }
+                        // 2. 指を離した場所へ、UNDOが100%効く pasteBlockAt で正式配置！
+                        const coords = getWorkspaceCoords(ws, upEvent);
+                        pasteBlockAt(ws, item, { x: coords.x - 20, y: coords.y - 15 });
                     }
 
                     if (!isPinned) {
@@ -2358,7 +2336,7 @@
     function pasteBlockAt(ws, item, targetCoords) {
         const B = _Blockly || window.Blockly;
 
-        // 1. 一連の操作を1つのUNDOにまとめるグループIDを発行
+        // 1回で消えるように一連の操作を1つのグループIDでまとめる
         const groupId = (B.utils && B.utils.genUid) ? B.utils.genUid() : ("jcs_" + Date.now());
         if (B.Events && typeof B.Events.setGroup === "function") {
             B.Events.setGroup(groupId);
@@ -2378,7 +2356,6 @@
 
             autoConnectBlock(createdBlock);
         } finally {
-            // 2. グループ化を解除
             if (B.Events && typeof B.Events.setGroup === "function") {
                 B.Events.setGroup(false);
             }
