@@ -1608,10 +1608,6 @@
         listEl.className = "jcs-list";
         mainPane.appendChild(listEl);
 
-        listEl = document.createElement("div");
-        listEl.className = "jcs-list";
-        mainPane.appendChild(listEl);
-
         const foot = document.createElement("div");
         foot.className = "jcs-foot";
         statusEl = document.createElement("span");
