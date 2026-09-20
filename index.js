@@ -2335,14 +2335,20 @@
 
     function pasteBlockAt(ws, item, targetCoords) {
         const B = _Blockly || window.Blockly;
+        if (!ws) return null;
 
-        // 1回で消えるように一連の操作を1つのグループIDでまとめる
-        const groupId = (B.utils && B.utils.genUid) ? B.utils.genUid() : ("jcs_" + Date.now());
-        if (B.Events && typeof B.Events.setGroup === "function") {
-            B.Events.setGroup(groupId);
-        }
+        // ExperienceManager本体のCopy/Pasteと同じ方式にする。
+        // append / moveTo / connect が個別のUNDOイベントとして積まれると、
+        // 1回の貼り付けを1回のUndoで戻せなくなるため、作成から接続まで
+        // 一旦イベントを停止し、最後にBlockCreateを1件だけ発火する。
+        const events = B && B.Events;
+        const canDisable = events && typeof events.disable === "function";
+        const canEnable = events && typeof events.enable === "function";
+        const canFire = events && typeof events.fire === "function";
 
         let createdBlock = null;
+        if (canDisable) events.disable();
+
         try {
             createdBlock = createBlockInstance(ws, item);
             if (!createdBlock) return null;
@@ -2354,12 +2360,27 @@
             if (typeof createdBlock.render === "function") createdBlock.render();
             if (typeof createdBlock.select === "function") createdBlock.select();
 
+            // 自動接続もイベント停止中に行う。
             autoConnectBlock(createdBlock);
+
+            if (typeof ws.resizeContents === "function") ws.resizeContents();
         } finally {
-            if (B.Events && typeof B.Events.setGroup === "function") {
-                B.Events.setGroup(false);
+            if (canEnable) events.enable();
+        }
+
+        // 「この貼り付け全体」を1つのBlockCreateとしてUNDOに登録。
+        // Blocklyの標準UNDOは、このCreateEventを元にブロックと接続状態をまとめて戻せる。
+        if (createdBlock && canFire) {
+            const CreateEvent = events.BlockCreate || events.Create;
+            if (typeof CreateEvent === "function") {
+                try {
+                    events.fire(new CreateEvent(createdBlock));
+                } catch (e) {
+                    console.warn("[JS Code Stock] BlockCreate event failed:", e);
+                }
             }
         }
+
         return createdBlock;
     }
 
