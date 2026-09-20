@@ -2238,6 +2238,7 @@
             let isDragging = false;
             let createdBlock = null;
             let ws = null;
+            let dragGroupId = null; // ★ ドラッグ用のUNDOグループID
 
             const onMouseMove = (moveEvent) => {
                 if (!panel) return;
@@ -2249,6 +2250,12 @@
                     isDragging = true;
                     ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
                     if (ws) {
+                        const B = _Blockly || window.Blockly;
+                        // 1. 生成からドロップ完了までを1つのUNDOにするグループIDを開始
+                        dragGroupId = (B.utils && B.utils.genUid) ? B.utils.genUid() : ("jcs_drag_" + Date.now());
+                        if (B.Events && typeof B.Events.setGroup === "function") {
+                            B.Events.setGroup(dragGroupId);
+                        }
                         createdBlock = createBlockInstance(ws, item);
                     }
 
@@ -2264,9 +2271,15 @@
                 if (isDragging && createdBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
                     const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+
+                    // 2. ドラッグ中の無駄なマウス移動履歴をUNDOに溜めないよう一時停止
+                    const B = _Blockly || window.Blockly;
+                    if (B.Events && typeof B.Events.disable === "function") B.Events.disable();
                     if (typeof createdBlock.moveTo === "function") {
                         createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
                     }
+                    if (B.Events && typeof B.Events.enable === "function") B.Events.enable();
+
                     if (typeof createdBlock.select === "function") {
                         createdBlock.select();
                     }
@@ -2277,10 +2290,17 @@
                 document.removeEventListener("mousemove", onMouseMove);
                 document.removeEventListener("mouseup", onMouseUp);
 
+                const B = _Blockly || window.Blockly;
+
                 if (isDragging) {
                     if (createdBlock && ws) {
+                        // 3. 最終的な配置と接続を同じグループIDにまとめる
+                        if (dragGroupId && B.Events && typeof B.Events.setGroup === "function") {
+                            B.Events.setGroup(dragGroupId);
+                        }
+
                         const coords = getWorkspaceCoords(ws, upEvent);
-                        const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+                        const Coordinate = (B.utils && B.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
                         if (typeof createdBlock.moveTo === "function") {
                             createdBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
                         }
@@ -2288,6 +2308,11 @@
                         autoConnectBlock(createdBlock);
 
                         if (typeof createdBlock.select === "function") createdBlock.select();
+                    }
+
+                    // 4. グループ化を完了
+                    if (B.Events && typeof B.Events.setGroup === "function") {
+                        B.Events.setGroup(false);
                     }
 
                     if (!isPinned) {
@@ -2326,11 +2351,12 @@
     }
 
     function pasteBlockAt(ws, item, targetCoords) {
-        const Blockly = _Blockly || window.Blockly;
+        const B = _Blockly || window.Blockly;
 
-        // 1. 移動や接続がバラバラにUNDO記録されないよう、イベント記録を一時停止
-        if (Blockly && Blockly.Events && typeof Blockly.Events.disable === "function") {
-            Blockly.Events.disable();
+        // 1. 生成・移動・接続を1回のUNDOにまとめるためのグループIDを発行
+        const groupId = (B.utils && B.utils.genUid) ? B.utils.genUid() : ("jcs_" + Date.now());
+        if (B.Events && typeof B.Events.setGroup === "function") {
+            B.Events.setGroup(groupId);
         }
 
         let createdBlock = null;
@@ -2338,7 +2364,7 @@
             createdBlock = createBlockInstance(ws, item);
             if (!createdBlock) return null;
 
-            const Coordinate = (Blockly.utils && Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+            const Coordinate = (B.utils && B.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
             if (typeof createdBlock.moveTo === "function") {
                 createdBlock.moveTo(new Coordinate(targetCoords.x, targetCoords.y));
             }
@@ -2347,22 +2373,11 @@
 
             autoConnectBlock(createdBlock);
         } finally {
-            // 2. イベント記録を再開
-            if (Blockly && Blockly.Events && typeof Blockly.Events.enable === "function") {
-                Blockly.Events.enable();
+            // 2. グループ化を解除
+            if (B.Events && typeof B.Events.setGroup === "function") {
+                B.Events.setGroup(false);
             }
         }
-
-        // 3. 完成した位置で「作成イベント」を1つだけUNDOスタックに登録
-        if (createdBlock && Blockly && Blockly.Events && typeof Blockly.Events.fire === "function") {
-            const CreateEvent = Blockly.Events.BlockCreate || Blockly.Events.Create;
-            if (typeof CreateEvent === "function") {
-                try {
-                    Blockly.Events.fire(new CreateEvent(createdBlock));
-                } catch (_) { }
-            }
-        }
-
         return createdBlock;
     }
 
