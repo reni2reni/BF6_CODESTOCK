@@ -40,6 +40,8 @@
         currentColor: 0,
         parentCount: 4,
         childCount: 6,
+        listFontSize: 15,    // 12〜30px
+        treeNavWidth: 145,   // 左タブの横幅
         windowBounds: { left: null, top: null, width: 400, height: 600 }
     };
 
@@ -88,6 +90,8 @@
             currentColor: 0,
             parentCount: 4,
             childCount: 6,
+            listFontSize: 15,    // 12〜30px
+            treeNavWidth: 145,   // 左タブの横幅
             windowBounds: { left: null, top: null, width: 400, height: 600 }
         };
     }
@@ -456,7 +460,18 @@
 
 #js-code-stock-panel .jcs-main-pane{display:flex;flex:1 1 0;min-height:0;height:100%;margin-top:4px;gap:6px;overflow:hidden}
 
-#js-code-stock-panel .jcs-tree-nav{width:145px;min-width:130px;max-width:180px;height:100%;max-height:100%;background:#181818;border:1px solid #333;border-radius:4px;overflow-y:scroll!important;overflow-x:hidden;padding:4px;flex-shrink:0;display:block}
+/* 左ツリーの max-width / min-width 制限を解除・調整 */
+#js-code-stock-panel .jcs-tree-nav{min-width:60px;max-width:320px;height:100%;max-height:100%;background:#181818;border:1px solid #333;border-radius:4px;overflow-y:scroll!important;overflow-x:hidden;padding:4px;flex-shrink:0;display:block}
+
+/* ★ 境目をドラッグしてリサイズするためのスプリッター */
+#js-code-stock-panel .jcs-splitter{width:5px;cursor:col-resize;background:#222;flex-shrink:0;transition:background 0.15s;margin:0 1px;border-radius:2px}
+#js-code-stock-panel .jcs-splitter:hover,#js-code-stock-panel .jcs-splitter.active{background:#4da3ff}
+
+/* ★ 見出し部のフォントサイズコントローラー */
+.jcs-font-ctrl{display:inline-flex;align-items:center;gap:3px;margin-left:auto;background:#222;padding:1px 4px;border-radius:3px;border:1px solid #444}
+.jcs-font-ctrl button{padding:1px 5px;font-size:10px;height:18px;line-height:16px;background:#333;color:#fff;border:none;border-radius:2px;cursor:pointer}
+.jcs-font-ctrl button:hover{background:#4a7bd4}
+.jcs-font-val{font-size:11px;min-width:28px;text-align:center;color:#4da3ff;font-weight:bold}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar{width:8px!important;display:block!important}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-track{background:#161616!important}
 #js-code-stock-panel .jcs-tree-nav::-webkit-scrollbar-thumb{background:#555!important;border-radius:4px}
@@ -1455,14 +1470,43 @@
         const bodyTitle = document.createElement("span");
         bodyTitle.className = "jcs-body-title";
         bodyTitle.textContent = "CodeLists";
-        bodyHead.append(treeToggleBtn, bodyTitle);
 
+        // ★ フォントサイズ変更ボタン（12〜30px）
+        if (!state.listFontSize) state.listFontSize = 15;
+        const fontCtrl = document.createElement("div");
+        fontCtrl.className = "jcs-font-ctrl";
+        const btnFontDec = makeButton("◀", () => {
+            if (state.listFontSize > 12) {
+                state.listFontSize--;
+                saveState();
+                renderPanel();
+            }
+        });
+        btnFontDec.title = "Decrease font size";
+        const fontVal = document.createElement("span");
+        fontVal.className = "jcs-font-val";
+        fontVal.textContent = state.listFontSize + "px";
+        const btnFontInc = makeButton("▶", () => {
+            if (state.listFontSize < 30) {
+                state.listFontSize++;
+                saveState();
+                renderPanel();
+            }
+        });
+        btnFontInc.title = "Increase font size";
+        fontCtrl.append(btnFontDec, fontVal, btnFontInc);
+
+        bodyHead.append(treeToggleBtn, bodyTitle, fontCtrl);
+
+        // --- メイン領域（左右スプリッターとフォントサイズの反映） ---
         const mainPane = document.createElement("div");
         mainPane.className = "jcs-main-pane";
 
         if (showTreeNav) {
             const treeNav = document.createElement("div");
             treeNav.className = "jcs-tree-nav";
+            // ★ 保存された幅を適用
+            treeNav.style.width = (state.treeNavWidth || 145) + "px";
 
             for (let p = 0; p < state.parentCount; p++) {
                 const pName = state.parents[p] || ("P" + p);
@@ -1471,6 +1515,7 @@
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent";
                 pEl.textContent = pName;
+                pEl.style.fontSize = Math.max(10, state.listFontSize - 3) + "px"; // 親タブも連動縮尺
 
                 const pColorIdx = state.parentColors ? state.parentColors[p] : null;
                 if (pColorIdx !== null && pColorIdx !== undefined && state.palette[pColorIdx]) {
@@ -1496,6 +1541,8 @@
                     const isActive = (searchScope === "TAB" && state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
                     cEl.textContent = cName;
+                    // ★ フォントサイズを適用
+                    cEl.style.fontSize = state.listFontSize + "px";
 
                     const cColorIdx = (state.childColors && state.childColors[p]) ? state.childColors[p][c] : null;
                     if (cColorIdx !== null && cColorIdx !== undefined && state.palette[cColorIdx]) {
@@ -1526,7 +1573,42 @@
             requestAnimationFrame(() => {
                 if (treeNav) treeNav.scrollTop = lastTreeNavScrollTop;
             });
+
+            // ★ 境目を左右にドラッグしてサイズ変更できるスプリッターバー
+            const splitter = document.createElement("div");
+            splitter.className = "jcs-splitter";
+            splitter.title = "Drag to resize sidebar width";
+
+            splitter.addEventListener("mousedown", (e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                splitter.classList.add("active");
+                const startX = e.clientX;
+                const startWidth = treeNav.offsetWidth;
+
+                const onMouseMove = (ev) => {
+                    const newWidth = Math.max(70, Math.min(320, startWidth + (ev.clientX - startX)));
+                    treeNav.style.width = newWidth + "px";
+                    state.treeNavWidth = newWidth;
+                };
+
+                const onMouseUp = () => {
+                    splitter.classList.remove("active");
+                    document.removeEventListener("mousemove", onMouseMove);
+                    document.removeEventListener("mouseup", onMouseUp);
+                    saveState();
+                };
+
+                document.addEventListener("mousemove", onMouseMove);
+                document.addEventListener("mouseup", onMouseUp);
+            });
+
+            mainPane.appendChild(splitter);
         }
+
+        listEl = document.createElement("div");
+        listEl.className = "jcs-list";
+        mainPane.appendChild(listEl);
 
         listEl = document.createElement("div");
         listEl.className = "jcs-list";
@@ -1751,8 +1833,8 @@
 
             const name = document.createElement("div");
             name.className = "jcs-name";
+            name.style.fontSize = (state.listFontSize || 15) + "px"; // ★ フォントサイズを反映
             name.style.borderLeftColor = state.palette[item.color || 0];
-            name.title = "Drag to place in workspace / Click to copy / Right click to rename";
 
             if (item.iconCoord && state.iconAtlas && state.iconAtlas.spriteUrl) {
                 const iconEl = document.createElement("div");
