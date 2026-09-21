@@ -3214,30 +3214,23 @@ setupWindowStatePersistence();
         const ws = block.workspace || (_Blockly.getMainWorkspace && _Blockly.getMainWorkspace());
         if (!ws) return false;
 
-        try {
-            // Blockly が標準で持つ「ブロックを画面中央へ移動」を優先。
-            if (typeof ws.centerOnBlock === "function" && block.id != null) {
-                ws.centerOnBlock(block.id);
-                return true;
-            }
-        } catch (_) { }
-
-        // centerOnBlock がない環境向けのフォールバック。
+        // 対象ブロックの左上が画面の左上から約50pxになるように表示する。
+        // centerOnBlock() は使わず、選択対象そのものを左上寄りに見せる。
         try {
             if (typeof ws.scroll === "function" && typeof block.getRelativeToSurfaceXY === "function") {
                 const pos = block.getRelativeToSurfaceXY();
                 const metrics = typeof ws.getMetrics === "function" ? ws.getMetrics() : {};
-                const width = Number(metrics.viewWidth) || 0;
-                const height = Number(metrics.viewHeight) || 0;
-                const blockWidth = typeof block.getHeightWidth === "function"
-                    ? (Number(block.getHeightWidth().width) || 0)
-                    : 0;
-                const blockHeight = typeof block.getHeightWidth === "function"
-                    ? (Number(block.getHeightWidth().height) || 0)
-                    : 0;
-                const x = Math.max(0, Number(pos.x) - Math.max(0, width - blockWidth) / 2);
-                const y = Math.max(0, Number(pos.y) - Math.max(0, height - blockHeight) / 2);
-                ws.scroll(x, y);
+                const gutter = 50;
+                const scrollX = Number(metrics.scrollX) || 0;
+                const scrollY = Number(metrics.scrollY) || 0;
+                const targetX = Math.max(0, Number(pos.x) - gutter);
+                const targetY = Math.max(0, Number(pos.y) - gutter);
+
+                // 現在のスクロール位置との差分ではなく、Blocklyのworkspace座標を
+                // そのまま指定することで、対象を左上約50pxへ持ってくる。
+                void scrollX;
+                void scrollY;
+                ws.scroll(targetX, targetY);
                 return true;
             }
         } catch (_) { }
@@ -3313,6 +3306,92 @@ setupWindowStatePersistence();
         return true;
     }
 
+    function getRuleBlockNumberPrefix(name) {
+        const text = name == null ? "" : String(name);
+        return text.replace(/^\d{1,3}\s*/, "");
+    }
+
+    function getRuleBlockParentMod(block) {
+        if (!block || block.type !== "ruleBlock") return null;
+        try {
+            if (typeof block.getSurroundParent === "function") {
+                let parent = block.getSurroundParent();
+                while (parent) {
+                    if (parent.type === "modBlock") return parent;
+                    parent = typeof parent.getSurroundParent === "function" ? parent.getSurroundParent() : null;
+                }
+            }
+        } catch (_) { }
+        return null;
+    }
+
+    function getRuleBlockName(block) {
+        if (!block || block.type !== "ruleBlock") return "";
+        try {
+            const field = typeof block.getField === "function" ? block.getField("NAME") : null;
+            if (field && typeof field.getValue === "function") return String(field.getValue() || "");
+        } catch (_) { }
+        return "";
+    }
+
+    function setRuleBlockName(block, name) {
+        if (!block || block.type !== "ruleBlock") return false;
+        try {
+            const field = typeof block.getField === "function" ? block.getField("NAME") : null;
+            if (field && typeof field.setValue === "function") {
+                field.setValue(name);
+                return true;
+            }
+        } catch (_) { }
+        return false;
+    }
+
+    function getRuleBlocksInMod(modBlock) {
+        if (!modBlock) return [];
+        const blocks = [];
+        try {
+            if (typeof modBlock.getDescendants === "function") {
+                for (const block of modBlock.getDescendants(false)) {
+                    if (block && block.type === "ruleBlock") blocks.push(block);
+                }
+            } else if (typeof modBlock.getChildren === "function") {
+                const walk = block => {
+                    if (!block) return;
+                    if (block.type === "ruleBlock") blocks.push(block);
+                    if (typeof block.getChildren === "function") {
+                        for (const child of block.getChildren(false)) walk(child);
+                    }
+                };
+                for (const child of modBlock.getChildren(false)) walk(child);
+            }
+        } catch (_) { }
+
+        // getDescendants の順番をBlockly上の位置順に補正。
+        blocks.sort((a, b) => {
+            try {
+                const ap = a.getRelativeToSurfaceXY();
+                const bp = b.getRelativeToSurfaceXY();
+                const dy = Number(ap.y) - Number(bp.y);
+                if (Math.abs(dy) > 1) return dy;
+                return Number(ap.x) - Number(bp.x);
+            } catch (_) {
+                return 0;
+            }
+        });
+        return blocks;
+    }
+
+    function renumberRulesInMod(modBlock) {
+        const rules = getRuleBlocksInMod(modBlock);
+        rules.forEach((rule, index) => {
+            const originalName = getRuleBlockName(rule);
+            const baseName = getRuleBlockNumberPrefix(originalName);
+            const prefix = String(index + 1).padStart(2, "0");
+            setRuleBlockName(rule, prefix + baseName);
+        });
+        return rules.length;
+    }
+
     function getPortalLanguage() {
         const candidates = [
             document && document.documentElement ? document.documentElement.lang : "",
@@ -3320,6 +3399,10 @@ setupWindowStatePersistence();
         ];
         const lang = candidates.find(v => typeof v === "string" && v.trim()) || "";
         return lang.toLowerCase().startsWith("ja") ? "ja" : "en";
+    }
+
+    function getRuleNumberMenuText() {
+        return getPortalLanguage() === "ja" ? "ルール番号付加" : "Add Rule Numbers";
     }
 
     function getSubroutineGotoText(direction) {
@@ -3376,6 +3459,23 @@ setupWindowStatePersistence();
         };
         plugin.registerItem(goToSubroutineItem);
         _Blockly.ContextMenuRegistry.registry.register(goToSubroutineItem);
+
+        const addRuleNumbersItem = {
+            id: "codeStockAddRuleNumbers",
+            displayText: () => getRuleNumberMenuText(),
+            scopeType: Scope.BLOCK,
+            weight: 87,
+            preconditionFn: scope => {
+                return scope && scope.block && scope.block.type === "modBlock"
+                    ? "enabled"
+                    : "hidden";
+            },
+            callback: scope => {
+                if (scope && scope.block) renumberRulesInMod(scope.block);
+            }
+        };
+        plugin.registerItem(addRuleNumbersItem);
+        _Blockly.ContextMenuRegistry.registry.register(addRuleNumbersItem);
 
         const goToSubroutineSourceItem = {
             id: "codeStockGoToSubroutineSource",
