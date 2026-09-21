@@ -2,78 +2,9 @@
 (function () {
     "use strict";
 
-    const plugin = BF2042Portal.Plugins.getPlugin("codeStock");
-    const STORAGE_KEY = "BF2042Portal_CODESTOCK_v1";
-    const SYNC_ENABLED_KEY = "BF2042Portal_CODESTOCK_SyncEnabled";
-
-const WINDOW_STATE_KEY = "BF2042Portal_CODESTOCK_WindowState_v1";
-
-function readWindowState() {
-    try {
-        const raw = localStorage.getItem(WINDOW_STATE_KEY);
-        if (!raw) return null;
-        const data = JSON.parse(raw);
-        return data && typeof data === "object" ? data : null;
-    } catch (_) {
-        return null;
-    }
-}
-
-function writeWindowState() {
-    try {
-        const data = {
-            left: Number.isFinite(window.screenX) ? window.screenX : null,
-            top: Number.isFinite(window.screenY) ? window.screenY : null,
-            width: Number.isFinite(window.outerWidth) ? window.outerWidth : null,
-            height: Number.isFinite(window.outerHeight) ? window.outerHeight : null,
-            savedAt: Date.now()
-        };
-        localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify(data));
-    } catch (_) {}
-}
-
-function restoreWindowState() {
-    const saved = readWindowState();
-    if (!saved) return;
-
-    const width = Number.isFinite(saved.width) && saved.width > 0 ? saved.width : null;
-    const height = Number.isFinite(saved.height) && saved.height > 0 ? saved.height : null;
-    const left = Number.isFinite(saved.left) ? saved.left : null;
-    const top = Number.isFinite(saved.top) ? saved.top : null;
-
-    if (typeof window.resizeTo === "function" && width && height) {
-        try { window.resizeTo(width, height); } catch (_) {}
-    }
-    if (typeof window.moveTo === "function" && left !== null && top !== null) {
-        try { window.moveTo(left, top); } catch (_) {}
-    }
-}
-
-function setupWindowStatePersistence() {
-    // Restore the last closed window's geometry on startup.
-    setTimeout(() => restoreWindowState(), 0);
-
-    // Keep the most recently changed geometry available so the next launch
-    // can restore the last window's position/size. This is deliberately
-    // separate from the shared code state and is never loaded by sync.
-    let timer = null;
-    const saveSoon = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => writeWindowState(), 150);
-    };
-
-    window.addEventListener("resize", saveSoon);
-    window.addEventListener("move", saveSoon);
-
-    // Also save on normal page shutdown.
-    window.addEventListener("beforeunload", () => {
-        clearTimeout(timer);
-        writeWindowState();
-    });
-}
-
-setupWindowStatePersistence();
-    const DB_NAME = "BF2042Portal_CODESTOCK_DB";
+    const plugin = BF2042Portal.Plugins.getPlugin("jsCodeStock");
+    const STORAGE_KEY = "BF2042Portal_JSCodeStock_v1";
+    const DB_NAME = "BF2042Portal_JSCodeStock_DB";
     const DB_STORE = "state_store";
 
     const PARENT_COUNT = 4;
@@ -138,7 +69,6 @@ setupWindowStatePersistence();
     let bodyEl = null;
     let statusEl = null;
     let searchScope = "ALL"; // ★ 検索範囲（"TAB" = 選択タブ内 / "ALL" = 全データ検索）
-    let syncOnTabOpen = false; // ★ タブを開くたびに共有ストレージから最新データを同期
 
     let interactionMode = "normal";
     let pendingBlockData = null;
@@ -199,137 +129,38 @@ setupWindowStatePersistence();
         }));
     }
 
-    function readSyncSetting() {
-        try {
-            syncOnTabOpen = localStorage.getItem(SYNC_ENABLED_KEY) === "1";
-        } catch (_) {
-            syncOnTabOpen = false;
-        }
-        return syncOnTabOpen;
-    }
-
-    function writeSyncSetting(enabled) {
-        syncOnTabOpen = !!enabled;
-        try {
-            localStorage.setItem(SYNC_ENABLED_KEY, syncOnTabOpen ? "1" : "0");
-        } catch (_) { }
-    }
-
-    function getSavedAt(data) {
-        const n = Number(data && data.__jcsUpdatedAt);
-        return Number.isFinite(n) ? n : 0;
-    }
-
-    async function getSharedState() {
-        let idbState = null;
-        let localState = null;
-
-        try {
-            idbState = await idbGet("app_state");
-        } catch (_) { }
-
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) localState = JSON.parse(raw);
-        } catch (_) { }
-
-        // IndexedDB と localStorage のうち、更新日時が新しい方を採用。
-        // 旧データ（更新日時なし）は従来どおり IndexedDB を優先する。
-        if (idbState && localState) {
-            return getSavedAt(localState) > getSavedAt(idbState) ? localState : idbState;
-        }
-        return idbState || localState || null;
-    }
-
-    function applyLoadedState(saved, preserveTab = false) {
-        if (!saved) return false;
-
-        const keepParent = state.filterParent;
-        const keepChild = Array.isArray(state.filterChild) ? state.filterChild.slice() : Array(8).fill(0);
-
-        const d = cloneDefault();
-        state = Object.assign(d, saved);
-
-        if (preserveTab) {
-            state.filterParent = keepParent;
-            state.filterChild = keepChild;
-        } else {
-            state.filterParent = 0;
-            state.filterChild = Array(8).fill(0);
-        }
-
-        if (!state.parentCount) state.parentCount = 4;
-        if (!state.childCount) state.childCount = 6;
-
-        if (Array.isArray(saved.parents)) state.parents = saved.parents.slice();
-        if (Array.isArray(saved.children)) state.children = saved.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
-        if (Array.isArray(saved.palette) && saved.palette.length === COLOR_COUNT) state.palette = saved.palette;
-        if (!Array.isArray(state.items)) state.items = [];
-
-        ensureStateIntegrity();
-        currentSnapshot = getSnapshotString();
-        undoStack = [];
-        redoStack = [];
-        return true;
-    }
-
     async function loadState() {
         try {
-            readSyncSetting();
-            const saved = await getSharedState();
-            if (!applyLoadedState(saved, false)) return;
+            let saved = null;
+            try {
+                saved = await idbGet("app_state");
+            } catch (_) { }
+
+            if (!saved) {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    saved = JSON.parse(raw);
+                    idbSet("app_state", saved).catch(() => { });
+                }
+            }
+
+            if (!saved) return;
+            const d = cloneDefault();
+            state = Object.assign(d, saved);
+
+            state.filterParent = 0;
+            state.filterChild = Array(8).fill(0);
+            if (!state.parentCount) state.parentCount = 4;
+            if (!state.childCount) state.childCount = 6;
+
+            if (Array.isArray(saved.parents)) state.parents = saved.parents.slice();
+            if (Array.isArray(saved.children)) state.children = saved.children.map(arr => Array.isArray(arr) ? arr.slice() : []);
+            if (Array.isArray(saved.palette) && saved.palette.length === COLOR_COUNT) state.palette = saved.palette;
+            if (!Array.isArray(state.items)) state.items = [];
+            currentSnapshot = getSnapshotString();
             if (panel) renderPanel();
         } catch (e) {
-            console.error("[CODE STOCK] load failed", e);
-        }
-    }
-
-    // ★ 同期ON時だけ、親/子タブを開く直前に共有IndexedDB/localStorageの最新状態を読む。
-    async function syncBeforeTabOpen() {
-        readSyncSetting();
-        if (!syncOnTabOpen) return false;
-
-        try {
-            const saved = await getSharedState();
-            if (!saved) return false;
-
-            const sharedAt = getSavedAt(saved);
-            const currentAt = getSavedAt(state);
-
-            if (sharedAt > 0 && currentAt > sharedAt) return false;
-
-            const sharedData = {
-                items: Array.isArray(saved.items) ? saved.items : [],
-                parents: saved.parents,
-                children: saved.children,
-                parentCount: saved.parentCount,
-                childCount: saved.childCount,
-                palette: saved.palette,
-                parentColors: saved.parentColors,
-                childColors: saved.childColors,
-                iconAtlas: saved.iconAtlas
-            };
-            const currentData = {
-                items: state.items,
-                parents: state.parents,
-                children: state.children,
-                parentCount: state.parentCount,
-                childCount: state.childCount,
-                palette: state.palette,
-                parentColors: state.parentColors,
-                childColors: state.childColors,
-                iconAtlas: state.iconAtlas
-            };
-
-            const sharedHasDifferentData = JSON.stringify(sharedData) !== JSON.stringify(currentData);
-            if (!sharedHasDifferentData) return false;
-
-            applyLoadedState(saved, true);
-            setStatus("Synced");
-            return true;
-        } catch (e) {
-            console.warn("[CODE STOCK] sync failed:", e);
-            return false;
+            console.error("[JS Code Stock] load failed", e);
         }
     }
 
@@ -409,9 +240,6 @@ setupWindowStatePersistence();
     }
 
     function saveState() {
-        // 共有ストレージ上で「どちらが新しいか」を判定するための更新時刻。
-        state.__jcsUpdatedAt = Math.max(Date.now(), getSavedAt(state) + 1);
-
         if (!isHistoryAction) {
             const nextSnap = getSnapshotString();
             if (currentSnapshot === null) {
@@ -426,21 +254,14 @@ setupWindowStatePersistence();
 
         updateHistoryButtons();
 
-        // IndexedDBを本体として保存しつつ、同期用の共有localStorageにもミラーする。
-        // localStorageが容量超過してもIndexedDB側の保存は継続する。
-        let localSaved = false;
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-            localSaved = true;
-        } catch (_) { }
-
         idbSet("app_state", state).then(() => {
-            setStatus(localSaved ? "Saved" : "Saved (IDB)");
+            setStatus("Saved");
         }).catch(err => {
-            console.warn("[CODE STOCK] IndexedDB save failed:", err);
-            if (localSaved) {
-                setStatus("Saved (local)");
-            } else {
+            console.warn("[JS Code Stock] IndexedDB save failed, fallback to local:", err);
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                setStatus("Saved");
+            } catch (e) {
                 setStatus("Save failed");
             }
         });
@@ -505,12 +326,12 @@ setupWindowStatePersistence();
     function attachMouseTracking(ws) {
         try {
             const svg = ws && ws.getParentSvg && ws.getParentSvg();
-            if (!svg || svg._codeStockMouseTrackingAttached) return;
-            svg._codeStockMouseTrackingAttached = true;
+            if (!svg || svg._jsCodeStockMouseTrackingAttached) return;
+            svg._jsCodeStockMouseTrackingAttached = true;
             svg.addEventListener("mousemove", e => { lastMouseEvent = e; }, { passive: true });
             svg.addEventListener("contextmenu", e => { lastContextMenuEvent = e; lastMouseEvent = e; }, { passive: true });
         } catch (e) {
-            console.warn("[CODE STOCK] mouse tracking failed:", e);
+            console.warn("[JS Code Stock] mouse tracking failed:", e);
         }
     }
 
@@ -758,7 +579,7 @@ setupWindowStatePersistence();
             reader.onload = () => {
                 try {
                     const data = JSON.parse(reader.result);
-                    if (!confirm("Overwrite current CODE STOCK data?")) return;
+                    if (!confirm("Overwrite current JS Code Stock data?")) return;
 
                     if (Array.isArray(data.items)) state.items = data.items;
 
@@ -782,7 +603,7 @@ setupWindowStatePersistence();
                     setStatus("Import complete");
                 } catch (e) {
                     setStatus("Loading failed");
-                    BF2042Portal.Shared.logError("CODE STOCK import", String(e));
+                    BF2042Portal.Shared.logError("JS Code Stock import", String(e));
                 }
             };
             reader.readAsText(file);
@@ -1237,26 +1058,6 @@ setupWindowStatePersistence();
         const sep1 = document.createElement("div");
         sep1.className = "jcs-menu-sep";
 
-        readSyncSetting();
-        const syncRow = document.createElement("label");
-        syncRow.className = "jcs-menu-row jcs-sync-row";
-        syncRow.style.cursor = "pointer";
-        syncRow.title = "ON: 親/子タブを開くたびに共有IndexedDB/localStorageの最新データを読み込む";
-
-        const syncLabel = document.createElement("span");
-        syncLabel.textContent = "同期";
-
-        const syncCheck = document.createElement("input");
-        syncCheck.type = "checkbox";
-        syncCheck.checked = syncOnTabOpen;
-        syncCheck.style.cursor = "pointer";
-        syncCheck.addEventListener("change", () => {
-            writeSyncSetting(syncCheck.checked);
-            setStatus(syncCheck.checked ? "Tab Sync: ON" : "Tab Sync: OFF");
-        });
-
-        syncRow.append(syncLabel, syncCheck);
-
         const pRow = document.createElement("div");
         pRow.className = "jcs-menu-row";
         const pLabel = document.createElement("span");
@@ -1344,7 +1145,7 @@ setupWindowStatePersistence();
         resetBtn.onmouseenter = () => resetBtn.style.background = "#ad1a1a";
         resetBtn.onmouseleave = () => resetBtn.style.background = "#5a2020";
 
-        menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, syncRow, pRow, cRow, sep2, resetBtn);
+        menu.append(expBtn, impBtn, tagsExpBtn, tagsImpBtn, sep1, pRow, cRow, sep2, resetBtn);
         document.body.appendChild(menu);
 
         setTimeout(() => {
@@ -1438,13 +1239,9 @@ setupWindowStatePersistence();
         parentTabs.className = "jcs-tabs";
         state.parents.slice(0, state.parentCount).forEach((name, i) => {
             const isActive = (searchScope === "TAB" && state.filterParent === i);
-            const b = makeButton(name, async () => {
-                await syncBeforeTabOpen();
+            const b = makeButton(name, () => {
                 searchScope = "TAB";
                 state.filterParent = i;
-                if (state.filterParent >= state.parentCount) {
-                    state.filterParent = Math.max(0, state.parentCount - 1);
-                }
                 renderPanel();
             }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
@@ -1458,15 +1255,8 @@ setupWindowStatePersistence();
         childTabs.className = "jcs-tabs jcs-child";
         (state.children[state.filterParent] || []).slice(0, state.childCount).forEach((name, i) => {
             const isActive = (searchScope === "TAB" && state.filterChild[state.filterParent] === i);
-            const b = makeButton(name, async () => {
-                await syncBeforeTabOpen();
+            const b = makeButton(name, () => {
                 searchScope = "TAB";
-                if (!Array.isArray(state.filterChild)) {
-                    state.filterChild = Array(8).fill(0);
-                }
-                if (state.filterParent >= state.parentCount) {
-                    state.filterParent = Math.max(0, state.parentCount - 1);
-                }
                 state.filterChild[state.filterParent] = i;
                 renderPanel();
             }, "jcs-tab" + (isActive ? " active" : ""));
@@ -1733,13 +1523,8 @@ setupWindowStatePersistence();
                     pEl.style.color = state.palette[pColorIdx];
                 }
 
-                pEl.onclick = async () => {
-                    await syncBeforeTabOpen();
-                    searchScope = "TAB";
+                pEl.onclick = () => {
                     state.filterParent = p;
-                    if (state.filterParent >= state.parentCount) {
-                        state.filterParent = Math.max(0, state.parentCount - 1);
-                    }
                     renderPanel();
                 };
                 pEl.oncontextmenu = (e) => {
@@ -1764,19 +1549,10 @@ setupWindowStatePersistence();
                         cEl.style.color = state.palette[cColorIdx];
                     }
 
-                    cEl.onclick = async () => {
-                        await syncBeforeTabOpen();
+                    cEl.onclick = () => {
                         searchScope = "TAB";
                         state.filterParent = p;
-                        if (!Array.isArray(state.filterChild)) {
-                            state.filterChild = Array(8).fill(0);
-                        }
-                        if (state.filterParent >= state.parentCount) {
-                            state.filterParent = Math.max(0, state.parentCount - 1);
-                        }
-                        if (state.filterParent < state.filterChild.length) {
-                            state.filterChild[state.filterParent] = c;
-                        }
+                        state.filterChild[p] = c;
                         renderPanel();
                     };
                     cEl.oncontextmenu = (e) => {
@@ -2349,7 +2125,7 @@ setupWindowStatePersistence();
                 createdBlock = Blockly.Xml.domToBlock(dom, ws);
             }
         } catch (e) {
-            console.warn("[CODE STOCK] block append failed:", e);
+            console.warn("[JS Code Stock] block append failed:", e);
         }
 
         if (!createdBlock || typeof createdBlock.initSvg !== "function") {
@@ -2447,7 +2223,7 @@ setupWindowStatePersistence();
                 const root = createdBlock.getRootBlock();
                 if (root && typeof root.render === "function") root.render();
             } catch (err) {
-                console.warn("[CODE STOCK] autoConnect failed:", err);
+                console.warn("[JS Code Stock] autoConnect failed:", err);
             }
         }
     }
@@ -2490,27 +2266,14 @@ setupWindowStatePersistence();
                 }
 
                 // マウス追従移動
-                // 重要: プレビュー中の moveTo / select は本体のUNDO履歴に入れない。
-                // ここでイベントを有効にしたまま moveTo すると、ドラッグ中の
-                // マウス移動回数だけ MOVE イベントがUNDO履歴に積まれ、
-                // 最終的な「配置」を1回Undoするまでに余分なUndoが必要になる。
                 if (isDragging && previewBlock && ws) {
                     const coords = getWorkspaceCoords(ws, moveEvent);
-                    const B = _Blockly || window.Blockly;
-                    const events = B && B.Events;
-                    const canDisable = events && typeof events.disable === "function";
-                    const canEnable = events && typeof events.enable === "function";
-                    if (canDisable) events.disable();
-                    try {
-                        const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
-                        if (typeof previewBlock.moveTo === "function") {
-                            previewBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
-                        }
-                        if (typeof previewBlock.select === "function") {
-                            previewBlock.select();
-                        }
-                    } finally {
-                        if (canEnable) events.enable();
+                    const Coordinate = (_Blockly.utils && _Blockly.utils.Coordinate) || function (x, y) { this.x = x; this.y = y; };
+                    if (typeof previewBlock.moveTo === "function") {
+                        previewBlock.moveTo(new Coordinate(coords.x - 20, coords.y - 15));
+                    }
+                    if (typeof previewBlock.select === "function") {
+                        previewBlock.select();
                     }
                 }
             };
@@ -2613,7 +2376,7 @@ setupWindowStatePersistence();
                 try {
                     events.fire(new CreateEvent(createdBlock));
                 } catch (e) {
-                    console.warn("[CODE STOCK] BlockCreate event failed:", e);
+                    console.warn("[JS Code Stock] BlockCreate event failed:", e);
                 }
             }
         }
@@ -2914,8 +2677,8 @@ setupWindowStatePersistence();
 
             setTimeout(() => titleEl && titleEl.focus(), 0);
         } catch (e) {
-            console.error("[CODE STOCK] block entry error:", e);
-            BF2042Portal.Shared.logError("CODE STOCK block entry", String(e));
+            console.error("[JS Code Stock] block entry error:", e);
+            BF2042Portal.Shared.logError("JS Code Stock block entry", String(e));
         }
     }
 
@@ -2954,7 +2717,7 @@ setupWindowStatePersistence();
                 scrollToBottomOnRender = true;
             }
         } catch (err) {
-            console.error("[CODE STOCK] addItem error:", err);
+            console.error("[JS Code Stock] addItem error:", err);
         }
 
         pendingIconCoord = null;
@@ -3190,8 +2953,8 @@ setupWindowStatePersistence();
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
 
         const workspaceItem = {
-            id: "codeStockWorkspace",
-            displayText: "CODE STOCK",
+            id: "jsCodeStockWorkspace",
+            displayText: "JS Code Stock",
             scopeType: Scope.WORKSPACE,
             weight: 90,
             preconditionFn: () => "enabled",
@@ -3201,8 +2964,8 @@ setupWindowStatePersistence();
         _Blockly.ContextMenuRegistry.registry.register(workspaceItem);
 
         const blockItem = {
-            id: "codeStockBlock",
-            displayText: "CODE STOCK",
+            id: "jsCodeStockBlock",
+            displayText: "JS Code Stock",
             scopeType: Scope.BLOCK,
             weight: 90,
             preconditionFn: () => "enabled",
@@ -3218,7 +2981,7 @@ setupWindowStatePersistence();
 
     plugin.initializeWorkspace = async function () {
         await loadState();
-        try { registerMenus(); } catch (e) { BF2042Portal.Shared.logError("CODE STOCK menu registration", String(e)); }
+        try { registerMenus(); } catch (e) { BF2042Portal.Shared.logError("JS Code Stock menu registration", String(e)); }
         try {
             const ws = _Blockly.getMainWorkspace && _Blockly.getMainWorkspace();
             attachMouseTracking(ws);
