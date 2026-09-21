@@ -1367,7 +1367,9 @@ setupWindowStatePersistence();
         const preservedBody = bodyEl ? bodyEl.value : null;
 
         const prevTreeNav = panel.querySelector(".jcs-tree-nav");
-        if (prevTreeNav && prevTreeNav.scrollTop > 0) {
+        if (prevTreeNav) {
+            // 左ツリーの現在位置は 0px も含めて必ず保存する。
+            // タブ切替・タイトルの表示/非表示・再描画で位置がリセットされないようにする。
             lastTreeNavScrollTop = prevTreeNav.scrollTop;
         }
 
@@ -1793,7 +1795,14 @@ setupWindowStatePersistence();
                 lastTreeNavScrollTop = treeNav.scrollTop;
             }, { passive: true });
 
-            treeNav.scrollTop = lastTreeNavScrollTop;
+            // DOM のレイアウト確定後にも復元する。
+            // renderPanel() 直後は高さ計算前のため、即時設定だけだと 0 に戻る場合がある。
+            const restoreTreeNavScroll = () => {
+                treeNav.scrollTop = Math.max(0, Number(lastTreeNavScrollTop) || 0);
+            };
+            restoreTreeNavScroll();
+            requestAnimationFrame(restoreTreeNavScroll);
+            setTimeout(restoreTreeNavScroll, 0);
 
             // ★ スプリッター（最小35px〜最大300pxまで自在に縮小・拡大可能に）
             const splitter = document.createElement("div");
