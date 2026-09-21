@@ -6,73 +6,73 @@
     const STORAGE_KEY = "BF2042Portal_CODESTOCK_v1";
     const SYNC_ENABLED_KEY = "BF2042Portal_CODESTOCK_SyncEnabled";
 
-    const WINDOW_STATE_KEY = "BF2042Portal_CODESTOCK_WindowState_v1";
+const WINDOW_STATE_KEY = "BF2042Portal_CODESTOCK_WindowState_v1";
 
-    function readWindowState() {
-        try {
-            const raw = localStorage.getItem(WINDOW_STATE_KEY);
-            if (!raw) return null;
-            const data = JSON.parse(raw);
-            return data && typeof data === "object" ? data : null;
-        } catch (_) {
-            return null;
-        }
+function readWindowState() {
+    try {
+        const raw = localStorage.getItem(WINDOW_STATE_KEY);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        return data && typeof data === "object" ? data : null;
+    } catch (_) {
+        return null;
     }
+}
 
-    function writeWindowState() {
-        try {
-            const data = {
-                left: Number.isFinite(window.screenX) ? window.screenX : null,
-                top: Number.isFinite(window.screenY) ? window.screenY : null,
-                width: Number.isFinite(window.outerWidth) ? window.outerWidth : null,
-                height: Number.isFinite(window.outerHeight) ? window.outerHeight : null,
-                savedAt: Date.now()
-            };
-            localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify(data));
-        } catch (_) { }
-    }
-
-    function restoreWindowState() {
-        const saved = readWindowState();
-        if (!saved) return;
-
-        const width = Number.isFinite(saved.width) && saved.width > 0 ? saved.width : null;
-        const height = Number.isFinite(saved.height) && saved.height > 0 ? saved.height : null;
-        const left = Number.isFinite(saved.left) ? saved.left : null;
-        const top = Number.isFinite(saved.top) ? saved.top : null;
-
-        if (typeof window.resizeTo === "function" && width && height) {
-            try { window.resizeTo(width, height); } catch (_) { }
-        }
-        if (typeof window.moveTo === "function" && left !== null && top !== null) {
-            try { window.moveTo(left, top); } catch (_) { }
-        }
-    }
-
-    function setupWindowStatePersistence() {
-        // Restore the last closed window's geometry on startup.
-        setTimeout(() => restoreWindowState(), 0);
-
-        // Keep the most recently changed geometry available so the next launch
-        // can restore the last window's position/size. This is deliberately
-        // separate from the shared code state and is never loaded by sync.
-        let timer = null;
-        const saveSoon = () => {
-            clearTimeout(timer);
-            timer = setTimeout(() => writeWindowState(), 150);
+function writeWindowState() {
+    try {
+        const data = {
+            left: Number.isFinite(window.screenX) ? window.screenX : null,
+            top: Number.isFinite(window.screenY) ? window.screenY : null,
+            width: Number.isFinite(window.outerWidth) ? window.outerWidth : null,
+            height: Number.isFinite(window.outerHeight) ? window.outerHeight : null,
+            savedAt: Date.now()
         };
+        localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify(data));
+    } catch (_) {}
+}
 
-        window.addEventListener("resize", saveSoon);
-        window.addEventListener("move", saveSoon);
+function restoreWindowState() {
+    const saved = readWindowState();
+    if (!saved) return;
 
-        // Also save on normal page shutdown.
-        window.addEventListener("beforeunload", () => {
-            clearTimeout(timer);
-            writeWindowState();
-        });
+    const width = Number.isFinite(saved.width) && saved.width > 0 ? saved.width : null;
+    const height = Number.isFinite(saved.height) && saved.height > 0 ? saved.height : null;
+    const left = Number.isFinite(saved.left) ? saved.left : null;
+    const top = Number.isFinite(saved.top) ? saved.top : null;
+
+    if (typeof window.resizeTo === "function" && width && height) {
+        try { window.resizeTo(width, height); } catch (_) {}
     }
+    if (typeof window.moveTo === "function" && left !== null && top !== null) {
+        try { window.moveTo(left, top); } catch (_) {}
+    }
+}
 
-    setupWindowStatePersistence();
+function setupWindowStatePersistence() {
+    // Restore the last closed window's geometry on startup.
+    setTimeout(() => restoreWindowState(), 0);
+
+    // Keep the most recently changed geometry available so the next launch
+    // can restore the last window's position/size. This is deliberately
+    // separate from the shared code state and is never loaded by sync.
+    let timer = null;
+    const saveSoon = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => writeWindowState(), 150);
+    };
+
+    window.addEventListener("resize", saveSoon);
+    window.addEventListener("move", saveSoon);
+
+    // Also save on normal page shutdown.
+    window.addEventListener("beforeunload", () => {
+        clearTimeout(timer);
+        writeWindowState();
+    });
+}
+
+setupWindowStatePersistence();
     const DB_NAME = "BF2042Portal_CODESTOCK_DB";
     const DB_STORE = "state_store";
 
@@ -3185,6 +3185,53 @@
 
     let menusRegistered = false;
 
+    function getSubroutineInstanceName(block) {
+        if (!block || block.type !== "subroutineInstanceBlock") return null;
+        try {
+            const field = typeof block.getField === "function" ? block.getField("SUBROUTINE_NAME") : null;
+            const fieldValue = field && typeof field.getValue === "function" ? field.getValue() : null;
+            if (fieldValue != null && String(fieldValue).trim() !== "") return String(fieldValue);
+        } catch (_) { }
+
+        const extraName = block.extraState && block.extraState.subroutineName;
+        return extraName != null && String(extraName).trim() !== "" ? String(extraName) : null;
+    }
+
+    function goToSubroutineBlock(block) {
+        if (!block || block.type !== "subroutineInstanceBlock") return false;
+
+        const subroutineName = getSubroutineInstanceName(block);
+        if (!subroutineName) return false;
+
+        const ws = block.workspace || (_Blockly.getMainWorkspace && _Blockly.getMainWorkspace());
+        if (!ws || typeof ws.getAllBlocks !== "function") return false;
+
+        const target = ws.getAllBlocks(false).find(candidate => {
+            if (!candidate || candidate.type !== "subroutineBlock") return false;
+            try {
+                const field = typeof candidate.getField === "function" ? candidate.getField("SUBROUTINE_NAME") : null;
+                const fieldValue = field && typeof field.getValue === "function" ? field.getValue() : null;
+                return fieldValue != null && String(fieldValue) === subroutineName;
+            } catch (_) {
+                return false;
+            }
+        });
+
+        if (!target) return false;
+
+        try {
+            if (typeof target.select === "function") {
+                target.select();
+            } else if (_Blockly.common && typeof _Blockly.common.setSelected === "function") {
+                _Blockly.common.setSelected(target);
+            }
+            return true;
+        } catch (e) {
+            console.warn("[CODE STOCK] Go to Subroutine failed:", e);
+            return false;
+        }
+    }
+
     function registerMenus() {
         if (menusRegistered) return;
         const Scope = _Blockly.ContextMenuRegistry.ScopeType;
@@ -3213,6 +3260,27 @@
         };
         plugin.registerItem(blockItem);
         _Blockly.ContextMenuRegistry.registry.register(blockItem);
+
+        const goToSubroutineItem = {
+            id: "codeStockGoToSubroutine",
+            displayText: "サブルーチンへ移動 (Go to Subroutine)",
+            scopeType: Scope.BLOCK,
+            // Blocklyのweightは数値が大きいほど下に表示されるため、
+            // 既存のCODE STOCK項目より少し上に置く。
+            weight: 89,
+            preconditionFn: scope => {
+                return scope && scope.block && scope.block.type === "subroutineInstanceBlock"
+                    && getSubroutineInstanceName(scope.block)
+                    ? "enabled"
+                    : "hidden";
+            },
+            callback: scope => {
+                if (scope && scope.block) goToSubroutineBlock(scope.block);
+            }
+        };
+        plugin.registerItem(goToSubroutineItem);
+        _Blockly.ContextMenuRegistry.registry.register(goToSubroutineItem);
+
         menusRegistered = true;
     }
 
