@@ -3433,10 +3433,60 @@ setupWindowStatePersistence();
         rules.forEach((rule, index) => {
             const originalName = getRuleBlockName(rule);
             const baseName = getRuleBlockNumberPrefix(originalName);
-            const prefix = String(index + 1).padStart(2, "0") + ":";
+            const prefix = String(index + 1).padStart(2, "0");
             setRuleBlockName(rule, prefix + baseName);
         });
         return rules.length;
+    }
+
+    // 同名ブロック検索用。NAME / SUBROUTINE_NAME を持つブロックを対象にする。
+    function getGenericBlockName(block) {
+        if (!block) return null;
+        const fieldNames = ["NAME", "SUBROUTINE_NAME"];
+        for (const fieldName of fieldNames) {
+            try {
+                const field = typeof block.getField === "function" ? block.getField(fieldName) : null;
+                const value = field && typeof field.getValue === "function" ? field.getValue() : null;
+                if (value != null && String(value).trim() !== "") return String(value);
+            } catch (_) { }
+        }
+        return null;
+    }
+
+    // クリックしたブロックと同名のブロックを、画面上の順番で巡回する。
+    // 同じブロック自身は検索対象から除外する。
+    const genericSameNameCycle = new Map();
+
+    function goToSameNameBlock(block) {
+        if (!block) return false;
+        const name = getGenericBlockName(block);
+        if (!name) return false;
+
+        const ws = block.workspace || (_Blockly.getMainWorkspace && _Blockly.getMainWorkspace());
+        if (!ws || typeof ws.getAllBlocks !== "function") return false;
+
+        const targets = getBlocksInVisualOrder(ws.getAllBlocks(false).filter(candidate => {
+            if (!candidate || candidate === block) return false;
+            return getGenericBlockName(candidate) === name;
+        }));
+
+        if (targets.length === 0) return false;
+
+        const key = String(block.id || "") + "::" + name;
+        const previousId = genericSameNameCycle.get(key);
+        let index = previousId
+            ? targets.findIndex(target => String(target.id) === String(previousId)) + 1
+            : 0;
+        if (index >= targets.length) index = 0;
+
+        const target = targets[index];
+        if (!selectBlocklyBlock(target)) return false;
+        genericSameNameCycle.set(key, target.id);
+        return true;
+    }
+
+    function getSameNameMenuText() {
+        return getPortalLanguage() === "ja" ? "同名ブロック移動" : "Go to Same-Name Block";
     }
 
     function getPortalLanguage() {
@@ -3486,6 +3536,29 @@ setupWindowStatePersistence();
         };
         plugin.registerItem(blockItem);
         _Blockly.ContextMenuRegistry.registry.register(blockItem);
+
+        const goToSameNameItem = {
+            id: "codeStockGoToSameNameBlock",
+            displayText: () => getSameNameMenuText(),
+            scopeType: Scope.BLOCK,
+            weight: 89.5,
+            preconditionFn: scope => {
+                const block = scope && scope.block;
+                if (!block || !getGenericBlockName(block)) return "hidden";
+                const ws = block.workspace || (_Blockly.getMainWorkspace && _Blockly.getMainWorkspace());
+                if (!ws || typeof ws.getAllBlocks !== "function") return "hidden";
+                const name = getGenericBlockName(block);
+                const hasOther = ws.getAllBlocks(false).some(candidate => {
+                    return candidate && candidate !== block && getGenericBlockName(candidate) === name;
+                });
+                return hasOther ? "enabled" : "hidden";
+            },
+            callback: scope => {
+                if (scope && scope.block) goToSameNameBlock(scope.block);
+            }
+        };
+        plugin.registerItem(goToSameNameItem);
+        _Blockly.ContextMenuRegistry.registry.register(goToSameNameItem);
 
         const goToSubroutineItem = {
             id: "codeStockGoToSubroutine",
