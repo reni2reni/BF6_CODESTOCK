@@ -3214,23 +3214,10 @@ setupWindowStatePersistence();
         const ws = block.workspace || (_Blockly.getMainWorkspace && _Blockly.getMainWorkspace());
         if (!ws) return false;
 
-        // 対象ブロックの左上が画面の左上から約50pxになるように表示する。
-        // centerOnBlock() は使わず、選択対象そのものを左上寄りに見せる。
+        // サブルーチン相互移動時は、従来どおり対象ブロックを画面中央へ表示する。
         try {
-            if (typeof ws.scroll === "function" && typeof block.getRelativeToSurfaceXY === "function") {
-                const pos = block.getRelativeToSurfaceXY();
-                const metrics = typeof ws.getMetrics === "function" ? ws.getMetrics() : {};
-                const gutter = 50;
-                const scrollX = Number(metrics.scrollX) || 0;
-                const scrollY = Number(metrics.scrollY) || 0;
-                const targetX = Math.max(0, Number(pos.x) - gutter);
-                const targetY = Math.max(0, Number(pos.y) - gutter);
-
-                // 現在のスクロール位置との差分ではなく、Blocklyのworkspace座標を
-                // そのまま指定することで、対象を左上約50pxへ持ってくる。
-                void scrollX;
-                void scrollY;
-                ws.scroll(targetX, targetY);
+            if (typeof ws.centerOnBlock === "function" && block.id != null) {
+                ws.centerOnBlock(block.id);
                 return true;
             }
         } catch (_) { }
