@@ -3209,6 +3209,42 @@ setupWindowStatePersistence();
         return extraName != null && String(extraName).trim() !== "" ? String(extraName) : null;
     }
 
+    function revealBlocklyBlock(block) {
+        if (!block) return false;
+        const ws = block.workspace || (_Blockly.getMainWorkspace && _Blockly.getMainWorkspace());
+        if (!ws) return false;
+
+        try {
+            // Blockly が標準で持つ「ブロックを画面中央へ移動」を優先。
+            if (typeof ws.centerOnBlock === "function" && block.id != null) {
+                ws.centerOnBlock(block.id);
+                return true;
+            }
+        } catch (_) { }
+
+        // centerOnBlock がない環境向けのフォールバック。
+        try {
+            if (typeof ws.scroll === "function" && typeof block.getRelativeToSurfaceXY === "function") {
+                const pos = block.getRelativeToSurfaceXY();
+                const metrics = typeof ws.getMetrics === "function" ? ws.getMetrics() : {};
+                const width = Number(metrics.viewWidth) || 0;
+                const height = Number(metrics.viewHeight) || 0;
+                const blockWidth = typeof block.getHeightWidth === "function"
+                    ? (Number(block.getHeightWidth().width) || 0)
+                    : 0;
+                const blockHeight = typeof block.getHeightWidth === "function"
+                    ? (Number(block.getHeightWidth().height) || 0)
+                    : 0;
+                const x = Math.max(0, Number(pos.x) - Math.max(0, width - blockWidth) / 2);
+                const y = Math.max(0, Number(pos.y) - Math.max(0, height - blockHeight) / 2);
+                ws.scroll(x, y);
+                return true;
+            }
+        } catch (_) { }
+
+        return false;
+    }
+
     function selectBlocklyBlock(block) {
         if (!block) return false;
         try {
@@ -3219,6 +3255,9 @@ setupWindowStatePersistence();
             } else {
                 return false;
             }
+
+            // 選択直後に対象が見える位置までスクロールする。
+            revealBlocklyBlock(block);
             return true;
         } catch (e) {
             return false;
