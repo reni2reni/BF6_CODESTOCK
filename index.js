@@ -3433,7 +3433,7 @@ setupWindowStatePersistence();
         rules.forEach((rule, index) => {
             const originalName = getRuleBlockName(rule);
             const baseName = getRuleBlockNumberPrefix(originalName);
-            const prefix = String(index + 1).padStart(2, "0");
+            const prefix = String(index + 1).padStart(2, "0") + ":";
             setRuleBlockName(rule, prefix + baseName);
         });
         return rules.length;
