@@ -241,8 +241,24 @@ setupWindowStatePersistence();
         return idbState || localState || null;
     }
 
+    // Icon data is intentionally not used or persisted.
+    // Remove legacy icon fields when loading old saved/imported data.
+    function stripLegacyIconData(data) {
+        if (!data || typeof data !== "object") return data;
+        try { delete data.iconAtlas; } catch (_) {}
+        if (Array.isArray(data.items)) {
+            data.items.forEach(item => {
+                if (!item || typeof item !== "object") return;
+                try { delete item.iconCoord; } catch (_) {}
+                try { delete item.iconSrc; } catch (_) {}
+            });
+        }
+        return data;
+    }
+
     function applyLoadedState(saved, preserveTab = false) {
         if (!saved) return false;
+        stripLegacyIconData(saved);
 
         const keepParent = state.filterParent;
         const keepChild = Array.isArray(state.filterChild) ? state.filterChild.slice() : Array(8).fill(0);
@@ -306,8 +322,7 @@ setupWindowStatePersistence();
                 childCount: saved.childCount,
                 palette: saved.palette,
                 parentColors: saved.parentColors,
-                childColors: saved.childColors,
-                iconAtlas: saved.iconAtlas
+                childColors: saved.childColors
             };
             const currentData = {
                 items: state.items,
@@ -317,8 +332,7 @@ setupWindowStatePersistence();
                 childCount: state.childCount,
                 palette: state.palette,
                 parentColors: state.parentColors,
-                childColors: state.childColors,
-                iconAtlas: state.iconAtlas
+                childColors: state.childColors
             };
 
             const sharedHasDifferentData = JSON.stringify(sharedData) !== JSON.stringify(currentData);
@@ -349,8 +363,7 @@ setupWindowStatePersistence();
             childColors: state.childColors,
             parentCount: state.parentCount,
             childCount: state.childCount,
-            palette: state.palette,
-            iconAtlas: state.iconAtlas
+            palette: state.palette
         });
     }
 
@@ -726,7 +739,6 @@ setupWindowStatePersistence();
     function exportData() {
         const data = {
             items: state.items,
-            iconAtlas: state.iconAtlas || null,
             config: {
                 parentCount: state.parentCount || 4,
                 childCount: state.childCount || 6,
@@ -760,10 +772,8 @@ setupWindowStatePersistence();
                     const data = JSON.parse(reader.result);
                     if (!confirm("Overwrite current CODE STOCK data?")) return;
 
-                    if (Array.isArray(data.items)) state.items = data.items;
-
-                    if (data.iconAtlas && data.iconAtlas.spriteUrl) {
-                        state.iconAtlas = data.iconAtlas;
+                    if (Array.isArray(data.items)) {
+                        state.items = data.items.map(item => stripLegacyIconData({ ...item }));
                     }
 
                     if (data.config) {
@@ -809,19 +819,11 @@ setupWindowStatePersistence();
             type: "CodeStock_TagExport",
             parentName: pName,
             childName: cName,
-            items: targetItems.map(i => {
-                let iconSrc = null;
-                if (i.iconCoord && state.iconAtlas && Array.isArray(state.iconAtlas.sources)) {
-                    const idx = Math.floor(i.iconCoord.x / (i.iconCoord.w || ICON_SIZE));
-                    iconSrc = state.iconAtlas.sources[idx] || null;
-                }
-                return {
-                    title: i.title,
-                    body: i.body,
-                    color: i.color || 0,
-                    iconSrc: iconSrc
-                };
-            })
+            items: targetItems.map(i => ({
+                title: i.title,
+                body: i.body,
+                color: i.color || 0
+            }))
         };
 
         const text = JSON.stringify(data, null, 2);
@@ -868,13 +870,6 @@ setupWindowStatePersistence();
 
                     for (const item of importList) {
                         if (item && item.title) {
-                            let iconCoord = null;
-                            if (item.iconSrc) {
-                                try {
-                                    iconCoord = await getOrAddIconToAtlas(item.iconSrc);
-                                } catch (_) { }
-                            }
-
                             state.items.push({
                                 id: uid(),
                                 title: item.title,
@@ -882,8 +877,7 @@ setupWindowStatePersistence();
                                 parent: pIdx,
                                 child: cIdx,
                                 order: nextOrderNum++,
-                                color: (item.color !== undefined) ? item.color : state.currentColor,
-                                iconCoord: iconCoord
+                                color: (item.color !== undefined) ? item.color : state.currentColor
                             });
                             addedCount++;
                         }
@@ -900,104 +894,6 @@ setupWindowStatePersistence();
             reader.readAsText(file);
         };
         input.click();
-    }
-
-    const ICON_SIZE = 20;
-    let pendingIconCoord = null;
-
-    function extractBlockIcon(block) {
-        if (!block) return null;
-        if (block.inputList) {
-            for (const input of block.inputList) {
-                if (input.fieldRow) {
-                    for (const field of input.fieldRow) {
-                        if (field && field.src_) return field.src_;
-                        if (field && typeof field.getValue === "function") {
-                            const v = field.getValue();
-                            if (typeof v === "string" && (v.startsWith("data:image") || v.includes(".svg") || v.includes(".png"))) {
-                                return v;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        const svgRoot = block.getSvgRoot && block.getSvgRoot();
-        if (svgRoot) {
-            const img = svgRoot.querySelector("image");
-            if (img) {
-                const href = img.getAttribute("href") || img.getAttribute("xlink:href");
-                if (href) return href;
-            }
-            const use = svgRoot.querySelector("use");
-            if (use) {
-                const ref = use.getAttribute("href") || use.getAttribute("xlink:href");
-                if (ref && ref.startsWith("#")) {
-                    const sym = document.querySelector(ref);
-                    if (sym) {
-                        const vb = sym.getAttribute("viewBox") || "0 0 24 24";
-                        const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">${sym.innerHTML}</svg>`;
-                        return "data:image/svg+xml;utf8," + encodeURIComponent(svgStr);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    function getOrAddIconToAtlas(iconSrc) {
-        if (!iconSrc) return Promise.resolve(null);
-        if (!state.iconAtlas) {
-            state.iconAtlas = { spriteUrl: null, sources: [] };
-        }
-        const atlas = state.iconAtlas;
-        const existingIdx = atlas.sources.indexOf(iconSrc);
-
-        if (existingIdx !== -1) {
-            return Promise.resolve({ x: existingIdx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-        }
-
-        return new Promise(resolve => {
-            const img = new Image();
-            if (!iconSrc.startsWith("data:")) {
-                img.crossOrigin = "anonymous";
-            }
-            img.onload = () => {
-                const idx = atlas.sources.length;
-                atlas.sources.push(iconSrc);
-
-                const totalWidth = atlas.sources.length * ICON_SIZE;
-                const canvas = document.createElement("canvas");
-                canvas.width = totalWidth;
-                canvas.height = ICON_SIZE;
-                const ctx = canvas.getContext("2d");
-
-                if (atlas.spriteUrl) {
-                    const oldSprite = new Image();
-                    oldSprite.onload = () => {
-                        ctx.drawImage(oldSprite, 0, 0);
-                        ctx.drawImage(img, idx * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE);
-                        atlas.spriteUrl = canvas.toDataURL("image/png");
-                        saveState();
-                        resolve({ x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                    };
-                    oldSprite.onerror = () => {
-                        ctx.drawImage(img, idx * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE);
-                        atlas.spriteUrl = canvas.toDataURL("image/png");
-                        saveState();
-                        resolve({ x: idx * ICON_SIZE, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                    };
-                    oldSprite.src = atlas.spriteUrl;
-                } else {
-                    ctx.drawImage(img, 0, 0, ICON_SIZE, ICON_SIZE);
-                    atlas.spriteUrl = canvas.toDataURL("image/png");
-                    saveState();
-                    resolve({ x: 0, y: 0, w: ICON_SIZE, h: ICON_SIZE });
-                }
-            };
-            img.onerror = () => resolve(null);
-            img.src = iconSrc;
-        });
     }
 
     function showFolderMenu(e, type, index) {
@@ -1358,24 +1254,6 @@ setupWindowStatePersistence();
         }, 10);
     }
 
-    // 上部タブから切り替えた時だけ、対応する左ツリー項目を一番上へ移動する。
-    // 左ツリーを直接クリックした場合や通常の再描画ではスクロール位置を変更しない。
-    function scrollTreeTabToTop(parentIndex, childIndex) {
-        if (!panel || !showTreeNav) return;
-        const treeNav = panel.querySelector(".jcs-tree-nav");
-        if (!treeNav) return;
-
-        const selector = (childIndex == null)
-            ? `.jcs-tree-parent[data-jcs-parent-index="${parentIndex}"]`
-            : `.jcs-tree-child[data-jcs-parent-index="${parentIndex}"][data-jcs-child-index="${childIndex}"]`;
-        const target = treeNav.querySelector(selector);
-        if (!target) return;
-
-        const top = target.offsetTop - treeNav.offsetTop;
-        lastTreeNavScrollTop = Math.max(0, top);
-        treeNav.scrollTop = lastTreeNavScrollTop;
-    }
-
     function renderPanel() {
         if (!panel) return;
 
@@ -1385,9 +1263,7 @@ setupWindowStatePersistence();
         const preservedBody = bodyEl ? bodyEl.value : null;
 
         const prevTreeNav = panel.querySelector(".jcs-tree-nav");
-        if (prevTreeNav) {
-            // 左ツリーの現在位置は 0px も含めて必ず保存する。
-            // 通常の再描画・閉じる・再表示では位置を動かさない。
+        if (prevTreeNav && prevTreeNav.scrollTop > 0) {
             lastTreeNavScrollTop = prevTreeNav.scrollTop;
         }
 
@@ -1466,7 +1342,6 @@ setupWindowStatePersistence();
                     state.filterParent = Math.max(0, state.parentCount - 1);
                 }
                 renderPanel();
-                requestAnimationFrame(() => scrollTreeTabToTop(state.filterParent, null));
             }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -1490,7 +1365,6 @@ setupWindowStatePersistence();
                 }
                 state.filterChild[state.filterParent] = i;
                 renderPanel();
-                requestAnimationFrame(() => scrollTreeTabToTop(state.filterParent, i));
             }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -1536,27 +1410,14 @@ setupWindowStatePersistence();
         titleWrap.style.alignItems = "center";
         titleWrap.style.position = "relative";
 
-        inputIconPreview = document.createElement("div");
-        inputIconPreview.className = "jcs-input-icon-preview";
-        inputIconPreview.style.width = "20px";
-        inputIconPreview.style.height = "20px";
-        inputIconPreview.style.flexShrink = "0";
-        inputIconPreview.style.marginRight = "6px";
-        inputIconPreview.style.borderRadius = "2px";
-        inputIconPreview.style.display = "none";
-        titleWrap.appendChild(inputIconPreview);
-
         titleEl = document.createElement("input");
         titleEl.placeholder = "🏷️Code name";
         titleEl.style.flex = "1";
         const clearTitle = makeButton("✕", () => {
             titleEl.value = "";
-            pendingIconCoord = null;
-            updateInputIconPreview();
             titleEl.focus();
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
-        updateInputIconPreview();
 
         const bodyWrap = document.createElement("div");
         bodyWrap.className = "jcs-input-wrapper";
@@ -1591,8 +1452,7 @@ setupWindowStatePersistence();
             if (inputHidden) {
                 editingIdValue = null;
                 lastEditingId = null;
-                pendingIconCoord = null;
-                pendingBlockTitle = null;
+                        pendingBlockTitle = null;
                 pendingBlockBody = null;
             }
             renderPanel();
@@ -1747,7 +1607,6 @@ setupWindowStatePersistence();
 
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent";
-                pEl.dataset.jcsParentIndex = String(p);
                 pEl.textContent = pName;
                 pEl.style.fontSize = Math.max(10, (state.listFontSize || 15) - 3) + "px";
 
@@ -1779,8 +1638,6 @@ setupWindowStatePersistence();
                     const cEl = document.createElement("div");
                     const isActive = (searchScope === "TAB" && state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
-                    cEl.dataset.jcsParentIndex = String(p);
-                    cEl.dataset.jcsChildIndex = String(c);
                     cEl.textContent = cName;
                     cEl.style.fontSize = (state.listFontSize || 15) + "px";
 
@@ -1818,12 +1675,7 @@ setupWindowStatePersistence();
                 lastTreeNavScrollTop = treeNav.scrollTop;
             }, { passive: true });
 
-            const restoreTreeNavScroll = () => {
-                treeNav.scrollTop = Math.max(0, Number(lastTreeNavScrollTop) || 0);
-            };
-            restoreTreeNavScroll();
-            requestAnimationFrame(restoreTreeNavScroll);
-            setTimeout(restoreTreeNavScroll, 0);
+            treeNav.scrollTop = lastTreeNavScrollTop;
 
             // ★ スプリッター（最小35px〜最大300pxまで自在に縮小・拡大可能に）
             const splitter = document.createElement("div");
@@ -2083,19 +1935,6 @@ setupWindowStatePersistence();
             name.className = "jcs-name";
             name.style.fontSize = (state.listFontSize || 15) + "px"; // ★ フォントサイズを反映
             name.style.borderLeftColor = state.palette[item.color || 0];
-
-            if (item.iconCoord && state.iconAtlas && state.iconAtlas.spriteUrl) {
-                const iconEl = document.createElement("div");
-                iconEl.style.width = item.iconCoord.w + "px";
-                iconEl.style.height = item.iconCoord.h + "px";
-                iconEl.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
-                iconEl.style.backgroundPosition = `-${item.iconCoord.x}px -${item.iconCoord.y}px`;
-                iconEl.style.backgroundRepeat = "no-repeat";
-                iconEl.style.flexShrink = "0";
-                iconEl.style.marginRight = "6px";
-                iconEl.style.borderRadius = "2px";
-                name.appendChild(iconEl);
-            }
 
             const titleText = document.createElement("span");
             titleText.textContent = item.title;
@@ -2880,27 +2719,6 @@ setupWindowStatePersistence();
         setStatus("Select or drag a code entry into workspace");
     }
 
-    let inputIconPreview = null;
-
-    function updateInputIconPreview() {
-        if (!inputIconPreview) return;
-        let coord = pendingIconCoord;
-        if (!coord && editingIdValue) {
-            const item = state.items.find(x => x && String(x.id) === String(editingIdValue));
-            if (item && item.iconCoord) coord = item.iconCoord;
-        }
-        if (coord && state.iconAtlas && state.iconAtlas.spriteUrl) {
-            inputIconPreview.style.display = "block";
-            inputIconPreview.style.width = (coord.w || 20) + "px";
-            inputIconPreview.style.height = (coord.h || 20) + "px";
-            inputIconPreview.style.backgroundImage = `url("${state.iconAtlas.spriteUrl}")`;
-            inputIconPreview.style.backgroundPosition = `-${coord.x}px -${coord.y}px`;
-            inputIconPreview.style.backgroundRepeat = "no-repeat";
-        } else {
-            inputIconPreview.style.display = "none";
-            inputIconPreview.style.backgroundImage = "none";
-        }
-    }
 
     let pendingBlockTitle = null;
     let pendingBlockBody = null;
@@ -2929,18 +2747,6 @@ setupWindowStatePersistence();
             openPanel();
             setStatus("Block copied — ADD to save, CANCEL to close");
 
-            pendingIconCoord = null;
-            try {
-                const iconSrc = extractBlockIcon(block);
-                if (iconSrc) {
-                    getOrAddIconToAtlas(iconSrc).then(coord => {
-                        pendingIconCoord = coord;
-                        updateInputIconPreview();
-                    }).catch(() => { });
-                } else {
-                    updateInputIconPreview();
-                }
-            } catch (_) { }
 
             setTimeout(() => titleEl && titleEl.focus(), 0);
         } catch (e) {
@@ -2966,9 +2772,6 @@ setupWindowStatePersistence();
                     item.parent = p;
                     item.child = c;
                     item.color = state.currentColor || 0;
-                    if (pendingIconCoord) {
-                        item.iconCoord = pendingIconCoord;
-                    }
                 }
             } else {
                 state.items.push({
@@ -2978,8 +2781,7 @@ setupWindowStatePersistence();
                     parent: p,
                     child: c,
                     order: nextOrder(),
-                    color: state.currentColor || 0,
-                    iconCoord: pendingIconCoord || null
+                    color: state.currentColor || 0
                 });
                 scrollToBottomOnRender = true;
             }
@@ -2987,7 +2789,6 @@ setupWindowStatePersistence();
             console.error("[CODE STOCK] addItem error:", err);
         }
 
-        pendingIconCoord = null;
         editingIdValue = null;
         lastEditingId = null;
         interactionMode = "normal";
@@ -2997,10 +2798,6 @@ setupWindowStatePersistence();
 
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
-        if (inputIconPreview) {
-            inputIconPreview.style.display = "none";
-            inputIconPreview.style.backgroundImage = "none";
-        }
 
         inputHidden = true;
 
@@ -3057,11 +2854,9 @@ setupWindowStatePersistence();
             bodyEl.value = item.body || "";
         }
 
-        updateInputIconPreview();
     }
 
     function cancelEdit() {
-        pendingIconCoord = null;
         pendingBlockTitle = null;
         pendingBlockBody = null;
         editingIdValue = null;
@@ -3069,10 +2864,6 @@ setupWindowStatePersistence();
 
         if (titleEl) titleEl.value = "";
         if (bodyEl) bodyEl.value = "";
-        if (inputIconPreview) {
-            inputIconPreview.style.display = "none";
-            inputIconPreview.style.backgroundImage = "none";
-        }
         inputHidden = true;
 
         if (interactionMode === "blockEntry") {
@@ -3144,7 +2935,7 @@ setupWindowStatePersistence();
                     }
 
                     const currentTree = panel.querySelector(".jcs-tree-nav");
-                    if (currentTree) {
+                    if (currentTree && currentTree.scrollTop > 0) {
                         lastTreeNavScrollTop = currentTree.scrollTop;
                     }
 
@@ -3196,7 +2987,7 @@ setupWindowStatePersistence();
 
         if (panel) {
             const currentTree = panel.querySelector(".jcs-tree-nav");
-            if (currentTree) {
+            if (currentTree && currentTree.scrollTop > 0) {
                 lastTreeNavScrollTop = currentTree.scrollTop;
             }
         }
