@@ -3244,9 +3244,48 @@ setupWindowStatePersistence();
         }
     }
 
-    // サブルーチン → 読み出し元の巡回位置。
-    // 同じサブルーチンから複数のInstanceがある場合、メニューを選ぶたびに次を選択する。
-    const subroutineSourceCycle = new Map();
+    // サブルーチンInstance → 定義ブロックの巡回位置。
+    // 同じ名前のsubroutineBlockが複数ある場合、同じInstanceからの移動を
+    // メニュー実行するたびに順番に切り替える。
+    const subroutineTargetCycle = new Map();
+
+    function getBlockCenter(block) {
+        if (!block) return null;
+        try {
+            const pos = typeof block.getRelativeToSurfaceXY === "function"
+                ? block.getRelativeToSurfaceXY()
+                : null;
+            if (!pos) return null;
+
+            let width = 0;
+            let height = 0;
+            try {
+                const rect = typeof block.getBoundingRectangle === "function"
+                    ? block.getBoundingRectangle()
+                    : null;
+                if (rect) {
+                    width = Number(rect.getWidth ? rect.getWidth() : rect.width) || 0;
+                    height = Number(rect.getHeight ? rect.getHeight() : rect.height) || 0;
+                }
+            } catch (_) { }
+
+            return { x: Number(pos.x) + width / 2, y: Number(pos.y) + height / 2 };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function getBlocksInVisualOrder(blocks) {
+        return blocks.slice().sort((a, b) => {
+            const pa = getBlockCenter(a);
+            const pb = getBlockCenter(b);
+            if (!pa && !pb) return 0;
+            if (!pa) return 1;
+            if (!pb) return -1;
+            if (Math.abs(pa.y - pb.y) > 1) return pa.y - pb.y;
+            return pa.x - pb.x;
+        });
+    }
 
     function goToSubroutineBlock(block) {
         if (!block || block.type !== "subroutineInstanceBlock") return false;
@@ -3257,13 +3296,24 @@ setupWindowStatePersistence();
         const ws = block.workspace || (_Blockly.getMainWorkspace && _Blockly.getMainWorkspace());
         if (!ws || typeof ws.getAllBlocks !== "function") return false;
 
-        const target = ws.getAllBlocks(false).find(candidate => {
+        const targets = getBlocksInVisualOrder(ws.getAllBlocks(false).filter(candidate => {
             if (!candidate || candidate.type !== "subroutineBlock") return false;
             return getSubroutineBlockName(candidate) === subroutineName;
-        });
+        }));
 
-        if (!target) return false;
-        return selectBlocklyBlock(target);
+        if (targets.length === 0) return false;
+
+        const key = String(block.id || subroutineName);
+        const previousId = subroutineTargetCycle.get(key);
+        let index = previousId
+            ? targets.findIndex(target => String(target.id) === String(previousId)) + 1
+            : 0;
+        if (index >= targets.length) index = 0;
+
+        const target = targets[index];
+        if (!selectBlocklyBlock(target)) return false;
+        subroutineTargetCycle.set(key, target.id);
+        return true;
     }
 
     function goToSubroutineSource(block) {
@@ -3282,15 +3332,25 @@ setupWindowStatePersistence();
 
         if (sources.length === 0) return false;
 
-        const key = String(block.id || subroutineName);
-        const previousId = subroutineSourceCycle.get(key);
-        let index = previousId ? sources.findIndex(source => String(source.id) === String(previousId)) + 1 : 0;
-        if (index >= sources.length) index = 0;
+        // 定義側からは巡回せず、現在のsubroutineBlockに最も近いInstanceだけを選択する。
+        const sourcePos = getBlockCenter(block);
+        let target = null;
+        let bestDistance = Infinity;
 
-        const target = sources[index];
-        if (!selectBlocklyBlock(target)) return false;
-        subroutineSourceCycle.set(key, target.id);
-        return true;
+        for (const source of sources) {
+            const sourcePos2 = getBlockCenter(source);
+            if (!sourcePos || !sourcePos2) continue;
+            const dx = sourcePos2.x - sourcePos.x;
+            const dy = sourcePos2.y - sourcePos.y;
+            const distance = dx * dx + dy * dy;
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                target = source;
+            }
+        }
+
+        if (!target) target = sources[0];
+        return selectBlocklyBlock(target);
     }
 
     function getRuleBlockNumberPrefix(name) {
