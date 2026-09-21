@@ -3197,6 +3197,38 @@ setupWindowStatePersistence();
         return extraName != null && String(extraName).trim() !== "" ? String(extraName) : null;
     }
 
+    function getSubroutineBlockName(block) {
+        if (!block || block.type !== "subroutineBlock") return null;
+        try {
+            const field = typeof block.getField === "function" ? block.getField("SUBROUTINE_NAME") : null;
+            const fieldValue = field && typeof field.getValue === "function" ? field.getValue() : null;
+            if (fieldValue != null && String(fieldValue).trim() !== "") return String(fieldValue);
+        } catch (_) { }
+
+        const extraName = block.extraState && block.extraState.subroutineName;
+        return extraName != null && String(extraName).trim() !== "" ? String(extraName) : null;
+    }
+
+    function selectBlocklyBlock(block) {
+        if (!block) return false;
+        try {
+            if (typeof block.select === "function") {
+                block.select();
+            } else if (_Blockly.common && typeof _Blockly.common.setSelected === "function") {
+                _Blockly.common.setSelected(block);
+            } else {
+                return false;
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // サブルーチン → 読み出し元の巡回位置。
+    // 同じサブルーチンから複数のInstanceがある場合、メニューを選ぶたびに次を選択する。
+    const subroutineSourceCycle = new Map();
+
     function goToSubroutineBlock(block) {
         if (!block || block.type !== "subroutineInstanceBlock") return false;
 
@@ -3208,28 +3240,53 @@ setupWindowStatePersistence();
 
         const target = ws.getAllBlocks(false).find(candidate => {
             if (!candidate || candidate.type !== "subroutineBlock") return false;
-            try {
-                const field = typeof candidate.getField === "function" ? candidate.getField("SUBROUTINE_NAME") : null;
-                const fieldValue = field && typeof field.getValue === "function" ? field.getValue() : null;
-                return fieldValue != null && String(fieldValue) === subroutineName;
-            } catch (_) {
-                return false;
-            }
+            return getSubroutineBlockName(candidate) === subroutineName;
         });
 
         if (!target) return false;
+        return selectBlocklyBlock(target);
+    }
 
-        try {
-            if (typeof target.select === "function") {
-                target.select();
-            } else if (_Blockly.common && typeof _Blockly.common.setSelected === "function") {
-                _Blockly.common.setSelected(target);
-            }
-            return true;
-        } catch (e) {
-            console.warn("[CODE STOCK] Go to Subroutine failed:", e);
-            return false;
-        }
+    function goToSubroutineSource(block) {
+        if (!block || block.type !== "subroutineBlock") return false;
+
+        const subroutineName = getSubroutineBlockName(block);
+        if (!subroutineName) return false;
+
+        const ws = block.workspace || (_Blockly.getMainWorkspace && _Blockly.getMainWorkspace());
+        if (!ws || typeof ws.getAllBlocks !== "function") return false;
+
+        const sources = ws.getAllBlocks(false).filter(candidate => {
+            if (!candidate || candidate.type !== "subroutineInstanceBlock") return false;
+            return getSubroutineInstanceName(candidate) === subroutineName;
+        });
+
+        if (sources.length === 0) return false;
+
+        const key = String(block.id || subroutineName);
+        const previousId = subroutineSourceCycle.get(key);
+        let index = previousId ? sources.findIndex(source => String(source.id) === String(previousId)) + 1 : 0;
+        if (index >= sources.length) index = 0;
+
+        const target = sources[index];
+        if (!selectBlocklyBlock(target)) return false;
+        subroutineSourceCycle.set(key, target.id);
+        return true;
+    }
+
+    function getPortalLanguage() {
+        const candidates = [
+            document && document.documentElement ? document.documentElement.lang : "",
+            typeof navigator !== "undefined" ? navigator.language : ""
+        ];
+        const lang = candidates.find(v => typeof v === "string" && v.trim()) || "";
+        return lang.toLowerCase().startsWith("ja") ? "ja" : "en";
+    }
+
+    function getSubroutineGotoText(direction) {
+        const ja = getPortalLanguage() === "ja";
+        if (direction === "source") return ja ? "サブルーチン元へ移動" : "Go to Subroutine Source";
+        return ja ? "サブルーチンへ移動" : "Go to Subroutine";
     }
 
     function registerMenus() {
@@ -3263,7 +3320,7 @@ setupWindowStatePersistence();
 
         const goToSubroutineItem = {
             id: "codeStockGoToSubroutine",
-            displayText: "サブルーチンへ移動 (Go to Subroutine)",
+            displayText: () => getSubroutineGotoText("target"),
             scopeType: Scope.BLOCK,
             // Blocklyのweightは数値が大きいほど下に表示されるため、
             // 既存のCODE STOCK項目より少し上に置く。
@@ -3280,6 +3337,24 @@ setupWindowStatePersistence();
         };
         plugin.registerItem(goToSubroutineItem);
         _Blockly.ContextMenuRegistry.registry.register(goToSubroutineItem);
+
+        const goToSubroutineSourceItem = {
+            id: "codeStockGoToSubroutineSource",
+            displayText: () => getSubroutineGotoText("source"),
+            scopeType: Scope.BLOCK,
+            weight: 88,
+            preconditionFn: scope => {
+                return scope && scope.block && scope.block.type === "subroutineBlock"
+                    && getSubroutineBlockName(scope.block)
+                    ? "enabled"
+                    : "hidden";
+            },
+            callback: scope => {
+                if (scope && scope.block) goToSubroutineSource(scope.block);
+            }
+        };
+        plugin.registerItem(goToSubroutineSourceItem);
+        _Blockly.ContextMenuRegistry.registry.register(goToSubroutineSourceItem);
 
         menusRegistered = true;
     }
