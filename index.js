@@ -1358,6 +1358,24 @@ setupWindowStatePersistence();
         }, 10);
     }
 
+    // 上部タブから切り替えた時だけ、対応する左ツリー項目を一番上へ移動する。
+    // 左ツリーを直接クリックした場合や通常の再描画ではスクロール位置を変更しない。
+    function scrollTreeTabToTop(parentIndex, childIndex) {
+        if (!panel || !showTreeNav) return;
+        const treeNav = panel.querySelector(".jcs-tree-nav");
+        if (!treeNav) return;
+
+        const selector = (childIndex == null)
+            ? `.jcs-tree-parent[data-jcs-parent-index="${parentIndex}"]`
+            : `.jcs-tree-child[data-jcs-parent-index="${parentIndex}"][data-jcs-child-index="${childIndex}"]`;
+        const target = treeNav.querySelector(selector);
+        if (!target) return;
+
+        const top = target.offsetTop - treeNav.offsetTop;
+        lastTreeNavScrollTop = Math.max(0, top);
+        treeNav.scrollTop = lastTreeNavScrollTop;
+    }
+
     function renderPanel() {
         if (!panel) return;
 
@@ -1369,7 +1387,7 @@ setupWindowStatePersistence();
         const prevTreeNav = panel.querySelector(".jcs-tree-nav");
         if (prevTreeNav) {
             // 左ツリーの現在位置は 0px も含めて必ず保存する。
-            // タブ切替・タイトルの表示/非表示・再描画で位置がリセットされないようにする。
+            // 通常の再描画・閉じる・再表示では位置を動かさない。
             lastTreeNavScrollTop = prevTreeNav.scrollTop;
         }
 
@@ -1448,6 +1466,7 @@ setupWindowStatePersistence();
                     state.filterParent = Math.max(0, state.parentCount - 1);
                 }
                 renderPanel();
+                requestAnimationFrame(() => scrollTreeTabToTop(state.filterParent, null));
             }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -1471,6 +1490,7 @@ setupWindowStatePersistence();
                 }
                 state.filterChild[state.filterParent] = i;
                 renderPanel();
+                requestAnimationFrame(() => scrollTreeTabToTop(state.filterParent, i));
             }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -1727,6 +1747,7 @@ setupWindowStatePersistence();
 
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent";
+                pEl.dataset.jcsParentIndex = String(p);
                 pEl.textContent = pName;
                 pEl.style.fontSize = Math.max(10, (state.listFontSize || 15) - 3) + "px";
 
@@ -1758,6 +1779,8 @@ setupWindowStatePersistence();
                     const cEl = document.createElement("div");
                     const isActive = (searchScope === "TAB" && state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
+                    cEl.dataset.jcsParentIndex = String(p);
+                    cEl.dataset.jcsChildIndex = String(c);
                     cEl.textContent = cName;
                     cEl.style.fontSize = (state.listFontSize || 15) + "px";
 
@@ -1795,8 +1818,6 @@ setupWindowStatePersistence();
                 lastTreeNavScrollTop = treeNav.scrollTop;
             }, { passive: true });
 
-            // DOM のレイアウト確定後にも復元する。
-            // renderPanel() 直後は高さ計算前のため、即時設定だけだと 0 に戻る場合がある。
             const restoreTreeNavScroll = () => {
                 treeNav.scrollTop = Math.max(0, Number(lastTreeNavScrollTop) || 0);
             };
@@ -3123,7 +3144,7 @@ setupWindowStatePersistence();
                     }
 
                     const currentTree = panel.querySelector(".jcs-tree-nav");
-                    if (currentTree && currentTree.scrollTop > 0) {
+                    if (currentTree) {
                         lastTreeNavScrollTop = currentTree.scrollTop;
                     }
 
@@ -3175,7 +3196,7 @@ setupWindowStatePersistence();
 
         if (panel) {
             const currentTree = panel.querySelector(".jcs-tree-nav");
-            if (currentTree && currentTree.scrollTop > 0) {
+            if (currentTree) {
                 lastTreeNavScrollTop = currentTree.scrollTop;
             }
         }
