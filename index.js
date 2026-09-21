@@ -6,73 +6,73 @@
     const STORAGE_KEY = "BF2042Portal_CODESTOCK_v1";
     const SYNC_ENABLED_KEY = "BF2042Portal_CODESTOCK_SyncEnabled";
 
-const WINDOW_STATE_KEY = "BF2042Portal_CODESTOCK_WindowState_v1";
+    const WINDOW_STATE_KEY = "BF2042Portal_CODESTOCK_WindowState_v1";
 
-function readWindowState() {
-    try {
-        const raw = localStorage.getItem(WINDOW_STATE_KEY);
-        if (!raw) return null;
-        const data = JSON.parse(raw);
-        return data && typeof data === "object" ? data : null;
-    } catch (_) {
-        return null;
+    function readWindowState() {
+        try {
+            const raw = localStorage.getItem(WINDOW_STATE_KEY);
+            if (!raw) return null;
+            const data = JSON.parse(raw);
+            return data && typeof data === "object" ? data : null;
+        } catch (_) {
+            return null;
+        }
     }
-}
 
-function writeWindowState() {
-    try {
-        const data = {
-            left: Number.isFinite(window.screenX) ? window.screenX : null,
-            top: Number.isFinite(window.screenY) ? window.screenY : null,
-            width: Number.isFinite(window.outerWidth) ? window.outerWidth : null,
-            height: Number.isFinite(window.outerHeight) ? window.outerHeight : null,
-            savedAt: Date.now()
+    function writeWindowState() {
+        try {
+            const data = {
+                left: Number.isFinite(window.screenX) ? window.screenX : null,
+                top: Number.isFinite(window.screenY) ? window.screenY : null,
+                width: Number.isFinite(window.outerWidth) ? window.outerWidth : null,
+                height: Number.isFinite(window.outerHeight) ? window.outerHeight : null,
+                savedAt: Date.now()
+            };
+            localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify(data));
+        } catch (_) { }
+    }
+
+    function restoreWindowState() {
+        const saved = readWindowState();
+        if (!saved) return;
+
+        const width = Number.isFinite(saved.width) && saved.width > 0 ? saved.width : null;
+        const height = Number.isFinite(saved.height) && saved.height > 0 ? saved.height : null;
+        const left = Number.isFinite(saved.left) ? saved.left : null;
+        const top = Number.isFinite(saved.top) ? saved.top : null;
+
+        if (typeof window.resizeTo === "function" && width && height) {
+            try { window.resizeTo(width, height); } catch (_) { }
+        }
+        if (typeof window.moveTo === "function" && left !== null && top !== null) {
+            try { window.moveTo(left, top); } catch (_) { }
+        }
+    }
+
+    function setupWindowStatePersistence() {
+        // Restore the last closed window's geometry on startup.
+        setTimeout(() => restoreWindowState(), 0);
+
+        // Keep the most recently changed geometry available so the next launch
+        // can restore the last window's position/size. This is deliberately
+        // separate from the shared code state and is never loaded by sync.
+        let timer = null;
+        const saveSoon = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => writeWindowState(), 150);
         };
-        localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify(data));
-    } catch (_) {}
-}
 
-function restoreWindowState() {
-    const saved = readWindowState();
-    if (!saved) return;
+        window.addEventListener("resize", saveSoon);
+        window.addEventListener("move", saveSoon);
 
-    const width = Number.isFinite(saved.width) && saved.width > 0 ? saved.width : null;
-    const height = Number.isFinite(saved.height) && saved.height > 0 ? saved.height : null;
-    const left = Number.isFinite(saved.left) ? saved.left : null;
-    const top = Number.isFinite(saved.top) ? saved.top : null;
-
-    if (typeof window.resizeTo === "function" && width && height) {
-        try { window.resizeTo(width, height); } catch (_) {}
+        // Also save on normal page shutdown.
+        window.addEventListener("beforeunload", () => {
+            clearTimeout(timer);
+            writeWindowState();
+        });
     }
-    if (typeof window.moveTo === "function" && left !== null && top !== null) {
-        try { window.moveTo(left, top); } catch (_) {}
-    }
-}
 
-function setupWindowStatePersistence() {
-    // Restore the last closed window's geometry on startup.
-    setTimeout(() => restoreWindowState(), 0);
-
-    // Keep the most recently changed geometry available so the next launch
-    // can restore the last window's position/size. This is deliberately
-    // separate from the shared code state and is never loaded by sync.
-    let timer = null;
-    const saveSoon = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => writeWindowState(), 150);
-    };
-
-    window.addEventListener("resize", saveSoon);
-    window.addEventListener("move", saveSoon);
-
-    // Also save on normal page shutdown.
-    window.addEventListener("beforeunload", () => {
-        clearTimeout(timer);
-        writeWindowState();
-    });
-}
-
-setupWindowStatePersistence();
+    setupWindowStatePersistence();
     const DB_NAME = "BF2042Portal_CODESTOCK_DB";
     const DB_STORE = "state_store";
 
@@ -241,18 +241,19 @@ setupWindowStatePersistence();
         return idbState || localState || null;
     }
 
-    // Icon data is intentionally not used or persisted.
-    // Remove legacy icon fields when loading old saved/imported data.
     function stripLegacyIconData(data) {
         if (!data || typeof data !== "object") return data;
-        try { delete data.iconAtlas; } catch (_) {}
-        if (Array.isArray(data.items)) {
-            data.items.forEach(item => {
-                if (!item || typeof item !== "object") return;
-                try { delete item.iconCoord; } catch (_) {}
-                try { delete item.iconSrc; } catch (_) {}
-            });
-        }
+        try {
+            delete data.iconAtlas;
+            if (Array.isArray(data.items)) {
+                data.items.forEach(item => {
+                    if (item && typeof item === "object") {
+                        delete item.iconCoord;
+                        delete item.iconSrc;
+                    }
+                });
+            }
+        } catch (_) { }
         return data;
     }
 
@@ -323,6 +324,7 @@ setupWindowStatePersistence();
                 palette: saved.palette,
                 parentColors: saved.parentColors,
                 childColors: saved.childColors
+
             };
             const currentData = {
                 items: state.items,
@@ -333,6 +335,7 @@ setupWindowStatePersistence();
                 palette: state.palette,
                 parentColors: state.parentColors,
                 childColors: state.childColors
+
             };
 
             const sharedHasDifferentData = JSON.stringify(sharedData) !== JSON.stringify(currentData);
@@ -364,6 +367,7 @@ setupWindowStatePersistence();
             parentCount: state.parentCount,
             childCount: state.childCount,
             palette: state.palette
+
         });
     }
 
@@ -770,11 +774,10 @@ setupWindowStatePersistence();
             reader.onload = () => {
                 try {
                     const data = JSON.parse(reader.result);
+                    stripLegacyIconData(data);
                     if (!confirm("Overwrite current CODE STOCK data?")) return;
 
-                    if (Array.isArray(data.items)) {
-                        state.items = data.items.map(item => stripLegacyIconData({ ...item }));
-                    }
+                    if (Array.isArray(data.items)) state.items = data.items;
 
                     if (data.config) {
                         if (data.config.parentCount) state.parentCount = Math.max(1, Math.min(8, Number(data.config.parentCount) || 4));
@@ -1254,6 +1257,24 @@ setupWindowStatePersistence();
         }, 10);
     }
 
+    // 上部タブから切り替えた時だけ、対応する左ツリー項目を一番上へ移動する。
+    // 左ツリーを直接クリックした場合や通常の再描画ではスクロール位置を変更しない。
+    function scrollTreeTabToTop(parentIndex, childIndex) {
+        if (!panel || !showTreeNav) return;
+        const treeNav = panel.querySelector(".jcs-tree-nav");
+        if (!treeNav) return;
+
+        const selector = (childIndex == null)
+            ? `.jcs-tree-parent[data-jcs-parent-index="${parentIndex}"]`
+            : `.jcs-tree-child[data-jcs-parent-index="${parentIndex}"][data-jcs-child-index="${childIndex}"]`;
+        const target = treeNav.querySelector(selector);
+        if (!target) return;
+
+        const top = target.offsetTop - treeNav.offsetTop;
+        lastTreeNavScrollTop = Math.max(0, top);
+        treeNav.scrollTop = lastTreeNavScrollTop;
+    }
+
     function renderPanel() {
         if (!panel) return;
 
@@ -1263,7 +1284,9 @@ setupWindowStatePersistence();
         const preservedBody = bodyEl ? bodyEl.value : null;
 
         const prevTreeNav = panel.querySelector(".jcs-tree-nav");
-        if (prevTreeNav && prevTreeNav.scrollTop > 0) {
+        if (prevTreeNav) {
+            // 左ツリーの現在位置は 0px も含めて必ず保存する。
+            // 通常の再描画・閉じる・再表示では位置を動かさない。
             lastTreeNavScrollTop = prevTreeNav.scrollTop;
         }
 
@@ -1342,6 +1365,7 @@ setupWindowStatePersistence();
                     state.filterParent = Math.max(0, state.parentCount - 1);
                 }
                 renderPanel();
+                requestAnimationFrame(() => scrollTreeTabToTop(state.filterParent, null));
             }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -1365,6 +1389,7 @@ setupWindowStatePersistence();
                 }
                 state.filterChild[state.filterParent] = i;
                 renderPanel();
+                requestAnimationFrame(() => scrollTreeTabToTop(state.filterParent, i));
             }, "jcs-tab" + (isActive ? " active" : ""));
             b.oncontextmenu = e => {
                 e.preventDefault();
@@ -1415,6 +1440,7 @@ setupWindowStatePersistence();
         titleEl.style.flex = "1";
         const clearTitle = makeButton("✕", () => {
             titleEl.value = "";
+
             titleEl.focus();
         }, "jcs-clear");
         titleWrap.append(titleEl, clearTitle);
@@ -1452,7 +1478,8 @@ setupWindowStatePersistence();
             if (inputHidden) {
                 editingIdValue = null;
                 lastEditingId = null;
-                        pendingBlockTitle = null;
+
+                pendingBlockTitle = null;
                 pendingBlockBody = null;
             }
             renderPanel();
@@ -1607,6 +1634,7 @@ setupWindowStatePersistence();
 
                 const pEl = document.createElement("div");
                 pEl.className = "jcs-tree-parent";
+                pEl.dataset.jcsParentIndex = String(p);
                 pEl.textContent = pName;
                 pEl.style.fontSize = Math.max(10, (state.listFontSize || 15) - 3) + "px";
 
@@ -1638,6 +1666,8 @@ setupWindowStatePersistence();
                     const cEl = document.createElement("div");
                     const isActive = (searchScope === "TAB" && state.filterParent === p && state.filterChild[p] === c);
                     cEl.className = "jcs-tree-child" + (isActive ? " active" : "");
+                    cEl.dataset.jcsParentIndex = String(p);
+                    cEl.dataset.jcsChildIndex = String(c);
                     cEl.textContent = cName;
                     cEl.style.fontSize = (state.listFontSize || 15) + "px";
 
@@ -1675,7 +1705,12 @@ setupWindowStatePersistence();
                 lastTreeNavScrollTop = treeNav.scrollTop;
             }, { passive: true });
 
-            treeNav.scrollTop = lastTreeNavScrollTop;
+            const restoreTreeNavScroll = () => {
+                treeNav.scrollTop = Math.max(0, Number(lastTreeNavScrollTop) || 0);
+            };
+            restoreTreeNavScroll();
+            requestAnimationFrame(restoreTreeNavScroll);
+            setTimeout(restoreTreeNavScroll, 0);
 
             // ★ スプリッター（最小35px〜最大300pxまで自在に縮小・拡大可能に）
             const splitter = document.createElement("div");
@@ -2719,7 +2754,6 @@ setupWindowStatePersistence();
         setStatus("Select or drag a code entry into workspace");
     }
 
-
     let pendingBlockTitle = null;
     let pendingBlockBody = null;
 
@@ -2746,7 +2780,6 @@ setupWindowStatePersistence();
 
             openPanel();
             setStatus("Block copied — ADD to save, CANCEL to close");
-
 
             setTimeout(() => titleEl && titleEl.focus(), 0);
         } catch (e) {
@@ -2857,6 +2890,7 @@ setupWindowStatePersistence();
     }
 
     function cancelEdit() {
+
         pendingBlockTitle = null;
         pendingBlockBody = null;
         editingIdValue = null;
@@ -2935,7 +2969,7 @@ setupWindowStatePersistence();
                     }
 
                     const currentTree = panel.querySelector(".jcs-tree-nav");
-                    if (currentTree && currentTree.scrollTop > 0) {
+                    if (currentTree) {
                         lastTreeNavScrollTop = currentTree.scrollTop;
                     }
 
@@ -2987,7 +3021,7 @@ setupWindowStatePersistence();
 
         if (panel) {
             const currentTree = panel.querySelector(".jcs-tree-nav");
-            if (currentTree && currentTree.scrollTop > 0) {
+            if (currentTree) {
                 lastTreeNavScrollTop = currentTree.scrollTop;
             }
         }
