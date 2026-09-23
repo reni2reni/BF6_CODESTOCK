@@ -1282,6 +1282,8 @@
 
         const preservedTitle = titleEl ? titleEl.value : null;
         const preservedBody = bodyEl ? bodyEl.value : null;
+        const preservedSearch = searchEl ? searchEl.value : ""; // ★ 追加
+
 
         const prevTreeNav = panel.querySelector(".jcs-tree-nav");
         if (prevTreeNav) {
@@ -1560,6 +1562,7 @@
         searchEl.style.flex = "1";
         searchEl.style.marginTop = "0";
         searchEl.placeholder = (searchScope === "ALL") ? "🔎search in ALL data..." : "🔎search in current tab...";
+        searchEl.value = preservedSearch; // ★ 追加：退避した文字をセット
 
         const clearSearch = makeButton("✕", () => {
             searchEl.value = "";
@@ -1567,7 +1570,7 @@
             renderList();
             searchEl.focus();
         }, "jcs-clear");
-        clearSearch.style.display = "none";
+        clearSearch.style.display = preservedSearch.trim() ? "block" : "none"; // ★ 変更：文字があれば✕を表
 
         searchEl.oninput = () => {
             clearSearch.style.display = searchEl.value.trim() ? "block" : "none";
