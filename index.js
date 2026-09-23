@@ -1641,6 +1641,14 @@
                 pEl.textContent = pName;
                 pEl.style.fontSize = Math.max(10, (state.listFontSize || 15) - 3) + "px";
 
+                // ★ 追加: フォントサイズ連動（12px時はマージン・パディングを最小化）
+                const pScale = Math.max(0, (state.listFontSize - 12) / 18); // 12px=0, 30px=1
+                pEl.style.paddingTop = Math.round(2 + pScale * 4) + "px";
+                pEl.style.paddingBottom = "1px";
+                pEl.style.marginTop = Math.round(1 + pScale * 5) + "px";
+                pEl.style.marginBottom = "0px";
+                pEl.style.lineHeight = "1.1";
+
                 const pColorIdx = state.parentColors ? state.parentColors[p] : null;
                 if (pColorIdx !== null && pColorIdx !== undefined && state.palette[pColorIdx]) {
                     pEl.style.color = state.palette[pColorIdx];
@@ -1673,6 +1681,13 @@
                     cEl.dataset.jcsChildIndex = String(c);
                     cEl.textContent = cName;
                     cEl.style.fontSize = (state.listFontSize || 15) + "px";
+
+                    // ★ 追加: 12px時は上下padding 1px、margin 0px（高さ最小化）
+                    const cScale = Math.max(0, (state.listFontSize - 12) / 18); // 12px=0, 30px=1
+                    cEl.style.paddingTop = Math.round(1 + cScale * 5) + "px";
+                    cEl.style.paddingBottom = Math.round(1 + cScale * 5) + "px";
+                    cEl.style.marginBottom = Math.round(cScale * 2) + "px";
+                    cEl.style.lineHeight = "1.2";
 
                     const cColorIdx = (state.childColors && state.childColors[p]) ? state.childColors[p][c] : null;
                     if (cColorIdx !== null && cColorIdx !== undefined && state.palette[cColorIdx]) {
