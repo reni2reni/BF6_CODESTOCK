@@ -641,7 +641,7 @@
 #js-code-stock-panel .jcs-add:hover{background:#6b86ff}
 #js-code-stock-panel .jcs-cancel{width:76px;min-width:76px;height:28px;background:#482020}
 #js-code-stock-panel .jcs-cancel:hover{background:#f36758}
-#js-code-stock-panel .jcs-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);cursor:pointer;background:#555;color:#fff;border:none;border-radius:3px;width:20px;height:20px;font-size:14px;line-height:18px;z-index:10}
+#js-code-stock-panel .jcs-clear{position:absolute;right:18px;top:50%;transform:translateY(-50%);cursor:pointer;background:#555;color:#fff;border:none;border-radius:3px;width:20px;height:20px;font-size:14px;line-height:18px;z-index:10}
 #js-code-stock-panel .jcs-clear:hover{background:#ad1a1a}
 #js-code-stock-panel #jcs-toggle-input{width:100%;height:30px;background:#444;border:none;color:#fff;cursor:pointer;margin-top:3px;font-size:13px}
 #js-code-stock-panel .jcs-filter{flex-shrink:0;padding:0 0 3px;border-bottom:1px solid #333}
@@ -1463,6 +1463,9 @@
             bodyEl.value = "";
             bodyEl.focus();
         }, "jcs-clear");
+        clearBody.style.right = "18px"; // ★ 追加: スクロールバーの内側（左）へ配置
+        clearBody.style.top = "16px";  // ★ 追加: 上端付近に固定して押しやすく調整
+        clearBody.style.transform = "none";
         bodyWrap.append(bodyEl, clearBody);
 
         const inputRight = document.createElement("div");
