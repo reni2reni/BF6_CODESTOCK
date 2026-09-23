@@ -1589,6 +1589,15 @@
         }, "jcs-tree-toggle");
         treeToggleBtn.title = "Toggle left tree sidebar";
 
+        // ★ 追加: 開いている時は下のタブリスト幅と連動させる
+        if (showTreeNav) {
+            const currentWidth = state.treeNavWidth !== undefined ? state.treeNavWidth : 85;
+            treeToggleBtn.style.width = currentWidth + "px";
+            treeToggleBtn.style.textAlign = "center";
+            treeToggleBtn.style.flexShrink = "0";
+            treeToggleBtn.style.boxSizing = "border-box";
+        }
+
         const bodyTitle = document.createElement("span");
         bodyTitle.className = "jcs-body-title";
         bodyTitle.textContent = "CodeLists";
@@ -1747,6 +1756,8 @@
                     const newWidth = Math.max(35, Math.min(300, startWidth + (ev.clientX - startX)));
                     treeNav.style.width = newWidth + "px";
                     state.treeNavWidth = newWidth;
+                    // ★ 追加: ドラッグ中も上のTABボタン幅をリアルタイム同期
+                    if (treeToggleBtn) treeToggleBtn.style.width = newWidth + "px";
                 };
 
                 const onMouseUp = () => {
