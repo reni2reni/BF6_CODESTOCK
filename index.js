@@ -1603,7 +1603,15 @@
 
         const bodyTitle = document.createElement("span");
         bodyTitle.className = "jcs-body-title";
-        bodyTitle.textContent = "CodeLists";
+
+        // ★ 追加: 現在のタブ内件数と全体の総件数を集計
+        const tabCount = state.items.filter(i =>
+            i.parent === state.filterParent &&
+            i.child === state.filterChild[state.filterParent]
+        ).length;
+        const totalCount = state.items.length;
+
+        bodyTitle.textContent = `CodeLists (${tabCount}/${totalCount})`;
 
         // ★ フォントサイズ変更ボタン（12〜30px）
         if (!state.listFontSize) state.listFontSize = 15;
